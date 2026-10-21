@@ -8,7 +8,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [setup, setSetup] = useState<{ configured: boolean; emailSet: boolean; keySet: boolean; keyLongEnough: boolean } | null>(null);
+  const [setup, setSetup] = useState<{ configured: boolean; emailSet: boolean; keySet: boolean; keyLongEnough: boolean; adminSettingNames?: string[] } | null>(null);
   const configured = setup?.configured ?? true;
 
   useEffect(() => {
@@ -38,8 +38,11 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
         <p role="alert" className="rounded-xl bg-amber-300/10 p-3 text-sm text-amber-100">
           Sign-in is not set up on this deployment yet. This deployment received:
           <span className="mt-2 block font-mono text-xs">
-            ADMIN_EMAIL: {setup?.emailSet ? 'set' : 'missing'} · ADMIN_KEY: {setup?.keySet ? (setup.keyLongEnough ? 'set' : 'too short (needs 12+)') : 'missing'}
+            ADMIN_EMAIL: {setup?.emailSet ? 'set' : 'missing'} · ADMIN_KEY: {setup?.keySet ? (setup.keyLongEnough ? 'set' : 'too short (needs 4+)') : 'missing'}
           </span>
+          {setup?.adminSettingNames && (
+            <span className="mt-1 block font-mono text-xs">Names received: {setup.adminSettingNames.join(', ') || 'none'}</span>
+          )}
           <span className="mt-2 block">Save them as Production secrets in the Pages project, then create a new deployment.</span>
         </p>
       )}

@@ -119,7 +119,7 @@ describe('admin sign-in', () => {
   });
 
   it('locks out an address after repeated failures', async () => {
-    for (let i = 0; i < 10; i += 1) await signIn(ADMIN_EMAIL, `wrong-${i}-xxxxxxx`, '198.51.100.20');
+    for (let i = 0; i < 10; i += 1) await signIn(ADMIN_EMAIL, `wrong-${i}`, '198.51.100.20');
     const blocked = await signIn(ADMIN_EMAIL, ADMIN_KEY, '198.51.100.20');
     expect(blocked.status).toBe(429);
     expect((await signIn(ADMIN_EMAIL, ADMIN_KEY, '198.51.100.21')).status).toBe(200);
@@ -135,7 +135,7 @@ describe('admin sign-in', () => {
   });
 
   it('fails closed, and says so, when the admin email or key is missing or too short', async () => {
-    for (const overrides of [{ ADMIN_EMAIL: '' }, { ADMIN_KEY: '' }, { ADMIN_KEY: 'short' }, { ADMIN_KEY: undefined as unknown as string }]) {
+    for (const overrides of [{ ADMIN_EMAIL: '' }, { ADMIN_KEY: '' }, { ADMIN_KEY: 'abc' }, { ADMIN_KEY: undefined as unknown as string }]) {
       env = createEnv(overrides);
       const response = await signIn(ADMIN_EMAIL, overrides.ADMIN_KEY ?? ADMIN_KEY);
       expect(response.status).toBe(503);
@@ -143,13 +143,27 @@ describe('admin sign-in', () => {
       expect((await (await send(new Request(`${SITE}/api/admin/login`))).json() as { configured: boolean }).configured).toBe(false);
       expect((await api('/api/admin/me')).status).toBe(401);
     }
-    env = createEnv({ ADMIN_KEY: 'short' });
-    expect(await (await send(new Request(`${SITE}/api/admin/login`))).json()).toEqual({ configured: false, emailSet: true, keySet: true, keyLongEnough: false });
+    env = createEnv({ ADMIN_KEY: 'abc' });
+    expect(await (await send(new Request(`${SITE}/api/admin/login`))).json()).toMatchObject({ configured: false, emailSet: true, keySet: true, keyLongEnough: false });
     env = createEnv();
     const ok = await send(new Request(`${SITE}/api/admin/login`));
     const text = await ok.text();
-    expect(JSON.parse(text)).toEqual({ configured: true, emailSet: true, keySet: true, keyLongEnough: true });
+    expect(JSON.parse(text)).toEqual({ configured: true, emailSet: true, keySet: true, keyLongEnough: true, adminSettingNames: ['"ADMIN_EMAIL"', '"ADMIN_KEY"'] });
     expect(text).not.toContain(ADMIN_KEY);
+  });
+
+  it('accepts any key of 4+ characters', async () => {
+    env = createEnv({ ADMIN_KEY: 'abcd' });
+    expect((await signIn(ADMIN_EMAIL, 'abcd')).status).toBe(200);
+  });
+
+  it('finds a key whose setting name was saved with a stray space or lower case', async () => {
+    for (const name of ['ADMIN_KEY ', ' admin_key']) {
+      env = { ...createEnv(), ADMIN_KEY: undefined as unknown as string, [name]: 'my-key' } as typeof env;
+      expect((await signIn(ADMIN_EMAIL, 'my-key')).status).toBe(200);
+      const setup = await (await send(new Request(`${SITE}/api/admin/login`))).json() as { adminSettingNames: string[] };
+      expect(setup.adminSettingNames).toContain(JSON.stringify(name));
+    }
   });
 
   it('accepts the values from the screenshot, with stray spaces around them', async () => {

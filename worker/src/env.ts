@@ -13,7 +13,7 @@ export interface Env {
 
   /** The admin's sign-in email. */
   ADMIN_EMAIL: string;
-  /** The admin's sign-in key (secret, at least 12 characters). Changing it signs everyone out. */
+  /** The admin's sign-in key (secret, at least 4 characters). Changing it signs everyone out. */
   ADMIN_KEY: string;
 
   /** Optional comma-separated allowlist of image hosts. Empty allows any https host. */

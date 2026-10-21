@@ -18,7 +18,7 @@ import { createSupabaseStore } from './supabase';
  */
 
 const NOT_CONFIGURED =
-  'Admin sign-in is not set up on this deployment. Add ADMIN_EMAIL and ADMIN_KEY (12+ characters) to the Pages project for Production, then redeploy.';
+  'Admin sign-in is not set up on this deployment. Add ADMIN_EMAIL and ADMIN_KEY (4+ characters) to the Pages project for Production, then redeploy.';
 
 const ADMIN_PAGE_HEADERS = {
   'cache-control': 'no-store',

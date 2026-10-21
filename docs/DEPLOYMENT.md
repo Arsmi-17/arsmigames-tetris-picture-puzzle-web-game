@@ -35,12 +35,12 @@ Secrets are set on the Pages project, never in a file in the repository:
 ```sh
 npx wrangler pages secret put SUPABASE_SERVICE_ROLE_KEY
 npx wrangler pages secret put ADMIN_EMAIL
-npx wrangler pages secret put ADMIN_KEY          # at least 12 characters
+npx wrangler pages secret put ADMIN_KEY          # at least 4 characters
 ```
 
 They can also be added in the dashboard under **Workers & Pages → the project → Settings → Variables and Secrets** (type: Secret). Changing `ADMIN_KEY` signs out every admin session.
 
-Without `ADMIN_EMAIL` and a long enough `ADMIN_KEY`, nobody can sign in. Without the Supabase settings, `/catalog.json` returns 503 and players get the pictures saved on their device or the built-in ones.
+Without `ADMIN_EMAIL` and an `ADMIN_KEY` of at least 4 characters, nobody can sign in. Without the Supabase settings, `/catalog.json` returns 503 and players get the pictures saved on their device or the built-in ones.
 
 ## 3. Deploy
 

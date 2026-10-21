@@ -13,7 +13,7 @@ export interface AdminIdentity {
 
 export const SESSION_COOKIE = '__Host-sr_admin';
 export const SESSION_TTL_S = 12 * 60 * 60;
-export const MIN_KEY_LENGTH = 12;
+export const MIN_KEY_LENGTH = 4;
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_ATTEMPTS = 10;
@@ -34,25 +34,44 @@ function fromBase64Url(input: string): string {
   return atob(base64);
 }
 
+/**
+ * Read a setting by name, tolerating a name saved with stray spaces or
+ * different capitals in the dashboard (e.g. "ADMIN_KEY " or "admin_key").
+ */
+function setting(env: Env, name: string): string {
+  const direct = (env as unknown as Record<string, unknown>)[name];
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  for (const [key, value] of Object.entries(env as unknown as Record<string, unknown>)) {
+    if (key.trim().toUpperCase() === name && typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
 function adminKey(env: Env): string {
-  return (env.ADMIN_KEY ?? '').trim();
+  return setting(env, 'ADMIN_KEY');
+}
+
+function adminEmail(env: Env): string {
+  return setting(env, 'ADMIN_EMAIL').toLowerCase();
 }
 
 /** Whether ADMIN_EMAIL and a long enough ADMIN_KEY reached this deployment. */
 export function signInConfigured(env: Env): boolean {
-  return Boolean(env.ADMIN_EMAIL?.trim() && adminKey(env).length >= MIN_KEY_LENGTH);
+  return Boolean(adminEmail(env) && adminKey(env).length >= MIN_KEY_LENGTH);
 }
 
 const configured = signInConfigured;
 
 /** Which sign-in settings this deployment received. Never includes the values. */
-export function signInSetup(env: Env): { configured: boolean; emailSet: boolean; keySet: boolean; keyLongEnough: boolean } {
+export function signInSetup(env: Env): { configured: boolean; emailSet: boolean; keySet: boolean; keyLongEnough: boolean; adminSettingNames: string[] } {
   const key = adminKey(env);
   return {
     configured: signInConfigured(env),
-    emailSet: Boolean(env.ADMIN_EMAIL?.trim()),
+    emailSet: Boolean(adminEmail(env)),
     keySet: key.length > 0,
     keyLongEnough: key.length >= MIN_KEY_LENGTH,
+    // Names only (quoted so stray spaces show), never values.
+    adminSettingNames: Object.keys(env).filter((k) => /admin/i.test(k)).map((k) => JSON.stringify(k)),
   };
 }
 
@@ -100,12 +119,12 @@ export async function checkCredentials(request: Request, env: Env, email: unknow
     recordFailure(request);
     return null;
   }
-  const emailOk = await sameSecret(email.trim().toLowerCase(), env.ADMIN_EMAIL.trim().toLowerCase());
+  const emailOk = await sameSecret(email.trim().toLowerCase(), adminEmail(env));
   // Spaces pasted around either value are ignored.
   const keyOk = await sameSecret(key.trim(), adminKey(env));
   if (emailOk && keyOk) {
     attempts.delete(clientKey(request));
-    return { email: env.ADMIN_EMAIL.trim().toLowerCase() };
+    return { email: adminEmail(env) };
   }
   recordFailure(request);
   return null;
@@ -137,7 +156,7 @@ export async function verifySession(request: Request, env: Env): Promise<AdminId
     const data = JSON.parse(fromBase64Url(payload)) as { email?: unknown; exp?: unknown };
     if (typeof data.email !== 'string' || typeof data.exp !== 'number') return null;
     if (data.exp < Math.floor(Date.now() / 1000)) return null;
-    if (data.email !== env.ADMIN_EMAIL.trim().toLowerCase()) return null;
+    if (data.email !== adminEmail(env)) return null;
     return { email: data.email };
   } catch {
     return null;

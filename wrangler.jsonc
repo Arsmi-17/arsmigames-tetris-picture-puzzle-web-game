@@ -5,7 +5,7 @@
 // Secrets (set with `npx wrangler pages secret put NAME`, never in this file):
 //   SUPABASE_SERVICE_ROLE_KEY   Supabase service_role key
 //   ADMIN_EMAIL                 admin sign-in email
-//   ADMIN_KEY                   admin sign-in key, at least 12 characters
+//   ADMIN_KEY                   admin sign-in key, at least 4 characters
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "arsmigames-tetris-picture-puzzle-web-game",

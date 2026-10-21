@@ -5,7 +5,7 @@
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# Admin sign-in for /admin/ (key: at least 12 characters)
+# Admin sign-in for /admin/ (key: at least 4 characters)
 ADMIN_EMAIL=you@example.com
 ADMIN_KEY=a-long-random-admin-key
 
