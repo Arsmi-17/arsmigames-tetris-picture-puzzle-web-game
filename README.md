@@ -33,7 +33,7 @@ To run the full stack (catalog, admin, events) locally with Wrangler, see [docs/
 | React UI and real-time loop (gravity, clock, input) | `src/App.tsx`, `src/components/`, `src/useGameEngine.ts` |
 | Catalog loading with device cache and built-in fallback | `src/catalog.ts`, `shared/catalog.ts` |
 | Admin UI (`/admin/`) | `admin/index.html`, `src/admin/` |
-| Cloudflare Worker: assets, catalog, admin API, event intake | `worker/src/`, `wrangler.jsonc`, `migrations/` |
+| Pages advanced-mode worker (`dist/_worker.js`): catalog from Supabase, admin sign-in and API, event intake | `worker/src/`, `wrangler.jsonc`, `supabase/migrations/` |
 | Analytics events and report | `shared/events.ts`, `src/analytics.ts`, `scripts/analytics-report.mjs` |
 
 ### Guarantees the tests hold
@@ -41,11 +41,11 @@ To run the full stack (catalog, admin, events) locally with Wrangler, see [docs/
 - Every generated board is tiled exactly by four-cell shapes and can be assembled by dropping pieces in queue order.
 - After any wrong drop, the full remaining queue is simulated before the retry piece is re-inserted, so a player can never be stranded. Hundreds of seeded rounds per board size are played with random misses.
 - A saved run rebuilds the same puzzle from its seed.
-- Admin reads and writes are refused without a valid Cloudflare Access token; cross-origin writes are refused.
+- Admin reads and writes are refused without a valid signed session from the env email and key; cross-origin writes are refused.
 - Analytics events contain no URLs or personal data.
 
 ## Docs
 
 - [Game vision and implementation plan](docs/GAME_VISION_AND_IMPLEMENTATION_PLAN.md)
-- [Deploying to Cloudflare](docs/DEPLOYMENT.md): resources, Access, configuration, verification, rollback
+- [Deploying](docs/DEPLOYMENT.md): Supabase setup, settings and secrets, deploy, verification, rollback
 - [Gameplay analytics](docs/ANALYTICS.md): what is collected, dataset layout, dashboard queries

@@ -1,3 +1,16 @@
 # Copy to .dev.vars for `npm run worker:dev`. Never commit .dev.vars.
-# Treats requests to localhost as this admin (ignored on any other hostname).
-DEV_ADMIN_EMAIL=you@example.com
+# Wrangler's local server reads this file instead of `vars` in wrangler.jsonc.
+
+# Supabase: Project Settings -> API
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# Admin sign-in for /admin/ (key: at least 12 characters)
+ADMIN_EMAIL=you@example.com
+ADMIN_KEY=a-long-random-admin-key
+
+# The site's own address
+GAME_ORIGIN=https://arsmigames-tetris-picture-puzzle-web-game.pages.dev
+
+# Optional: comma-separated allowed image hosts. Empty = any https website.
+IMAGE_HOSTS=

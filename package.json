@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm run build:worker",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json",
     "test": "vitest run",
@@ -13,10 +13,9 @@
     "preview": "vite preview",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "analytics:report": "node scripts/analytics-report.mjs",
-    "worker:dev": "npm run build && wrangler dev",
-    "db:migrate:local": "wrangler d1 migrations apply shape-reveal-catalog --local",
-    "db:migrate:remote": "wrangler d1 migrations apply shape-reveal-catalog --remote",
-    "deploy": "npm run check && wrangler deploy"
+    "worker:dev": "npm run build && wrangler pages dev",
+    "deploy": "npm run check && wrangler pages deploy --branch main",
+    "build:worker": "esbuild worker/src/index.ts --bundle --format=esm --platform=neutral --target=es2022 --main-fields=module,main --outfile=dist/_worker.js"
   },
   "dependencies": {
     "lucide-react": "^0.446.0",
@@ -32,6 +31,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.18",
+    "esbuild": "^0.21.5",
     "eslint": "^9.9.1",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",

@@ -32,9 +32,8 @@ export interface Publication {
 }
 
 export interface CatalogStatus {
+  /** The most recent change to what players see. */
   latest: Publication | null;
-  lastSuccess: Publication | null;
-  stale: boolean;
 }
 
 export interface ImageCheck {
@@ -54,10 +53,9 @@ export interface ImageReport {
 }
 
 export interface PublishOutcome {
-  status: 'succeeded' | 'failed';
+  status: 'succeeded';
   version: number;
   pictureCount: number;
-  error?: string;
 }
 
 export interface PictureForm {
@@ -89,9 +87,9 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   try {
     body = await response.json() as Record<string, unknown>;
   } catch {
-    // Non-JSON error page (for example an Access login redirect).
+    // Non-JSON error page (for example a platform error).
   }
-  if (!response.ok && !(response.status === 502 && body.catalog)) {
+  if (!response.ok) {
     const message = typeof body.error === 'string' ? body.error : `Request failed (HTTP ${response.status}).`;
     throw new ApiError(message, response.status, body);
   }

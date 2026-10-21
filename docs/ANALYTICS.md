@@ -1,5 +1,7 @@
 # Gameplay analytics
 
+**Turning it on:** Analytics Engine is off by default. Enable it once in the Cloudflare dashboard (**Workers & Pages → Analytics Engine**), then uncomment `analytics_engine_datasets` in `wrangler.jsonc` and deploy. Until then, the game still sends events and the server accepts them, but nothing is stored.
+
 Shape Reveal sends a few anonymous events per picture to `POST /api/events`. The Worker validates them and writes one data point each to the Workers Analytics Engine dataset `shape_reveal_events`. Visits and page performance come from Cloudflare Web Analytics, which is enabled separately in the dashboard.
 
 ## What is sent

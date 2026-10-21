@@ -1,43 +1,10 @@
 import { CATALOG_SCHEMA, type CatalogPicture, type PublicCatalog } from '../../shared/catalog';
-import type { Env } from './env';
+import type { CatalogStore, PictureRow, PublicationRow } from './store';
 
-/** R2 key of the catalog the game reads. Versioned copies sit beside it. */
-export const CATALOG_KEY = 'catalog/catalog.json';
-export const CATALOG_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300';
-
-export type PictureStatus = 'draft' | 'published' | 'unpublished';
-
-export interface PictureRow {
-  id: string;
-  title: string;
-  theme: string;
-  url: string;
-  thumb_url: string | null;
-  alt: string;
-  attribution: string | null;
-  license: string | null;
-  min_challenge: number;
-  max_challenge: number;
-  status: PictureStatus;
-  sort_order: number;
-  width: number | null;
-  height: number | null;
-  bytes: number | null;
-  content_type: string | null;
-  created_at: string;
-  updated_at: string;
-  updated_by: string;
-}
-
-export interface PublicationRow {
-  version: number;
-  status: 'pending' | 'succeeded' | 'failed';
-  picture_count: number | null;
-  error: string | null;
-  started_at: string;
-  finished_at: string | null;
-  published_by: string;
-}
+export const CATALOG_PATH = '/catalog.json';
+/** Every cached copy expires within a minute, so changes reach all players in that time. */
+export const CATALOG_MAX_AGE_S = 60;
+export const CATALOG_CACHE_CONTROL = `public, max-age=${CATALOG_MAX_AGE_S}`;
 
 export function toCatalogPicture(row: PictureRow): CatalogPicture {
   const picture: CatalogPicture = {
@@ -55,93 +22,72 @@ export function toCatalogPicture(row: PictureRow): CatalogPicture {
   return picture;
 }
 
-export async function listPictures(env: Env): Promise<PictureRow[]> {
-  const { results } = await env.DB.prepare('SELECT * FROM pictures ORDER BY sort_order, created_at').all<PictureRow>();
-  return results;
-}
-
-export async function getPicture(env: Env, id: string): Promise<PictureRow | null> {
-  return env.DB.prepare('SELECT * FROM pictures WHERE id = ?').bind(id).first<PictureRow>();
-}
-
-export async function findByUrl(env: Env, url: string): Promise<PictureRow | null> {
-  return env.DB.prepare('SELECT * FROM pictures WHERE url = ?').bind(url).first<PictureRow>();
-}
-
-export async function audit(env: Env, actor: string, action: string, pictureId: string | null, detail?: unknown): Promise<void> {
-  await env.DB.prepare('INSERT INTO audit_log (at, actor, action, picture_id, detail) VALUES (?, ?, ?, ?, ?)')
-    .bind(new Date().toISOString(), actor, action, pictureId, detail === undefined ? null : JSON.stringify(detail))
-    .run();
-}
-
-export interface PublishOutcome {
-  status: 'succeeded' | 'failed';
-  version: number;
-  pictureCount: number;
-  error?: string;
+/** Build the public catalog from the published rows. */
+export async function buildCatalog(store: CatalogStore): Promise<PublicCatalog> {
+  const [rows, latest] = await Promise.all([store.publishedPictures(), store.latestPublication()]);
+  return {
+    schema: CATALOG_SCHEMA,
+    version: latest?.version ?? 0,
+    generatedAt: new Date().toISOString(),
+    pictures: rows.map(toCatalogPicture),
+  };
 }
 
 /**
- * Write the public catalog from the published rows in D1. The D1 change that
- * triggered this is already committed; if the R2 write fails the attempt is
- * recorded as failed so the admin can see the catalog is stale and retry.
+ * Cloudflare keeps a separate cache per hostname, so the key is the
+ * hostname the request used. Publishing clears the admin's hostname at once;
+ * copies for other hostnames (pages.dev, a custom domain) expire within
+ * CATALOG_MAX_AGE_S.
  */
-export async function publishCatalog(env: Env, actor: string): Promise<PublishOutcome> {
-  const startedAt = new Date().toISOString();
-  const pending = await env.DB.prepare(
-    "INSERT INTO catalog_publications (status, started_at, published_by) VALUES ('pending', ?, ?) RETURNING version",
-  ).bind(startedAt, actor).first<{ version: number }>();
-  if (!pending) throw new Error('Could not record the publication.');
-  const version = pending.version;
+function cacheKey(requestUrl: string): Request {
+  return new Request(new URL(CATALOG_PATH, requestUrl).toString(), { method: 'GET' });
+}
 
-  let pictureCount = 0;
-  try {
-    const { results } = await env.DB.prepare(
-      "SELECT * FROM pictures WHERE status = 'published' ORDER BY sort_order, created_at",
-    ).all<PictureRow>();
-    pictureCount = results.length;
-    const catalog: PublicCatalog = {
-      schema: CATALOG_SCHEMA,
-      version,
-      generatedAt: new Date().toISOString(),
-      pictures: results.map(toCatalogPicture),
-    };
-    const body = JSON.stringify(catalog);
-    const httpMetadata = { contentType: 'application/json; charset=utf-8', cacheControl: CATALOG_CACHE_CONTROL };
-    await env.CATALOG_BUCKET.put(`catalog/v${version}.json`, body, { httpMetadata });
-    await env.CATALOG_BUCKET.put(CATALOG_KEY, body, { httpMetadata, customMetadata: { version: String(version) } });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await env.DB.prepare("UPDATE catalog_publications SET status = 'failed', error = ?, finished_at = ?, picture_count = ? WHERE version = ?")
-      .bind(message.slice(0, 500), new Date().toISOString(), pictureCount, version)
-      .run();
-    return { status: 'failed', version, pictureCount, error: message };
-  }
+function edgeCache(): Cache | null {
+  return typeof caches === 'undefined' ? null : (caches as unknown as { default: Cache }).default;
+}
 
-  await env.DB.prepare("UPDATE catalog_publications SET status = 'succeeded', finished_at = ?, picture_count = ? WHERE version = ?")
-    .bind(new Date().toISOString(), pictureCount, version)
-    .run();
-  return { status: 'succeeded', version, pictureCount };
+/** Serve the catalog from the edge cache, rebuilding it from Supabase on a miss. */
+export async function serveCatalog(requestUrl: string, store: CatalogStore, ctx: ExecutionContext): Promise<Response> {
+  const cache = edgeCache();
+  const key = cacheKey(requestUrl);
+  const hit = await cache?.match(key);
+  if (hit) return hit;
+
+  const catalog = await buildCatalog(store);
+  const response = new Response(JSON.stringify(catalog), {
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': CATALOG_CACHE_CONTROL,
+      'x-content-type-options': 'nosniff',
+    },
+  });
+  if (cache) ctx.waitUntil(cache.put(key, response.clone()));
+  return response;
+}
+
+export interface PublishOutcome {
+  status: 'succeeded';
+  version: number;
+  pictureCount: number;
+}
+
+/**
+ * Record a new catalog version after a change to what players can see, and
+ * drop the cached copy for the admin's hostname at this location. Every other
+ * copy expires within CATALOG_MAX_AGE_S.
+ */
+export async function publishCatalog(store: CatalogStore, actor: string, requestUrl: string): Promise<PublishOutcome> {
+  const published = await store.publishedPictures();
+  const publication = await store.recordPublication(actor, published.length);
+  await edgeCache()?.delete(cacheKey(requestUrl));
+  return { status: 'succeeded', version: publication.version, pictureCount: published.length };
 }
 
 export interface CatalogStatus {
   latest: PublicationRow | null;
-  lastSuccess: PublicationRow | null;
-  /** Published content changed after the last successful publication. */
-  stale: boolean;
 }
 
-export async function catalogStatus(env: Env): Promise<CatalogStatus> {
-  const latest = await env.DB.prepare('SELECT * FROM catalog_publications ORDER BY version DESC LIMIT 1').first<PublicationRow>();
-  const lastSuccess = await env.DB.prepare(
-    "SELECT * FROM catalog_publications WHERE status = 'succeeded' ORDER BY version DESC LIMIT 1",
-  ).first<PublicationRow>();
-  // Drafts never reach the public catalog, so their edits do not make it stale.
-  const changed = await env.DB.prepare(
-    "SELECT MAX(updated_at) AS at FROM pictures WHERE status != 'draft'",
-  ).first<{ at: string | null }>();
-  const stale =
-    latest?.status === 'failed' ||
-    (changed?.at != null && (!lastSuccess?.started_at || changed.at > lastSuccess.started_at));
-  return { latest, lastSuccess, stale };
+export async function catalogStatus(store: CatalogStore): Promise<CatalogStatus> {
+  return { latest: await store.latestPublication() };
 }

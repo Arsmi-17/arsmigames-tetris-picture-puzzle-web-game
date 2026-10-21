@@ -115,11 +115,17 @@ export async function checkImage(rawUrl: string, options: ImageCheckOptions): Pr
   }
   if (url.protocol !== 'https:') result.errors.push('Image URLs must use https://.');
   if (url.username || url.password) result.errors.push('Image URLs must not contain credentials.');
-  if (!options.allowedHosts.includes(url.hostname.toLowerCase())) {
-    result.errors.push(`Images must be hosted on ${options.allowedHosts.join(' or ') || 'an approved host (none configured)'}.`);
+  const host = url.hostname.toLowerCase();
+  if (options.allowedHosts.length > 0 && !options.allowedHosts.includes(host)) {
+    result.errors.push(`Images must be hosted on ${options.allowedHosts.join(' or ')}.`);
   }
-  if (url.hostname.endsWith('.r2.dev')) result.errors.push('r2.dev URLs are for development only; use the custom image domain.');
+  // Pasted links must name a public website, not an address or a local machine.
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') ||
+      /^\d+(\.\d+){3}$/.test(host) || host.startsWith('[')) {
+    result.errors.push('Use an image link with a public website name, not an IP address or local host.');
+  }
   if (result.errors.length > 0) return result;
+  if (url.hostname.endsWith('.r2.dev')) result.warnings.push('r2.dev links are rate-limited and meant for development; a custom domain is more reliable.');
 
   let response: Response;
   try {

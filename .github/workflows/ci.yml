@@ -18,5 +18,5 @@ jobs:
       - run: npm run check
       - name: Puzzle and retry feasibility over many seeds
         run: npm run verify:puzzles
-      - name: Worker bundles with the production config
-        run: npx wrangler deploy --dry-run --outdir /tmp/worker-dry-run
+      - name: Pages advanced-mode worker is in the build
+        run: test -s dist/_worker.js

@@ -1,55 +1,28 @@
-// Cloudflare Worker serving the game, the admin page, the catalog and event intake.
-// Replace every REPLACE_ME value before deploying; see docs/DEPLOYMENT.md.
+// Cloudflare Pages project: the game's static build plus an advanced-mode
+// _worker.js (worker/src) that serves /catalog.json from Supabase,
+// /api/events, and the signed-in /admin. See docs/DEPLOYMENT.md.
+//
+// Secrets (set with `npx wrangler pages secret put NAME`, never in this file):
+//   SUPABASE_SERVICE_ROLE_KEY   Supabase service_role key
+//   ADMIN_EMAIL                 admin sign-in email
+//   ADMIN_KEY                   admin sign-in key, at least 12 characters
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "shape-reveal",
-  "main": "worker/src/index.ts",
+  "name": "arsmigames-tetris-picture-puzzle-web-game",
+  "pages_build_output_dir": "./dist",
   "compatibility_date": "2025-10-01",
-  "observability": { "enabled": true },
 
-  // Production hostnames. Uncomment once the zone is on Cloudflare.
-  // "routes": [
-  //   { "pattern": "play.example.com", "custom_domain": true },
-  //   { "pattern": "admin.example.com", "custom_domain": true }
+  // Gameplay analytics (optional). Enable Analytics Engine in the Cloudflare
+  // dashboard (Workers & Pages -> Analytics Engine) first, then uncomment.
+  // Without it, /api/events still accepts events but does not store them.
+  // "analytics_engine_datasets": [
+  //   { "binding": "ANALYTICS", "dataset": "shape_reveal_events" }
   // ],
 
-  "assets": {
-    "directory": "./dist",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    // These paths must pass through the Worker: admin auth, catalog, events.
-    "run_worker_first": ["/admin", "/admin/*", "/api/*", "/catalog.json"]
-  },
-
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "shape-reveal-catalog",
-      "database_id": "REPLACE_ME_D1_DATABASE_ID",
-      "migrations_dir": "migrations"
-    }
-  ],
-
-  "r2_buckets": [
-    // Private bucket for the generated catalog JSON. Picture files live in a
-    // separate public bucket behind the image custom domain.
-    { "binding": "CATALOG_BUCKET", "bucket_name": "shape-reveal-catalog" }
-  ],
-
-  "analytics_engine_datasets": [
-    { "binding": "ANALYTICS", "dataset": "shape_reveal_events" }
-  ],
-
-  // Per-IP limit on /api/events. The IP is only the limiter key; it is never stored.
-  "ratelimits": [
-    { "name": "EVENTS_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } }
-  ],
-
   "vars": {
-    "ACCESS_TEAM_DOMAIN": "REPLACE_ME.cloudflareaccess.com",
-    "ACCESS_AUD": "REPLACE_ME_ACCESS_APPLICATION_AUD",
-    "ADMIN_EMAILS": "",
-    "IMAGE_HOSTS": "images.example.com",
-    "GAME_ORIGIN": "https://play.example.com"
+    "SUPABASE_URL": "https://REPLACE_ME.supabase.co",
+    // Empty allows image links from any https website.
+    "IMAGE_HOSTS": "",
+    "GAME_ORIGIN": "https://arsmigames-tetris-picture-puzzle-web-game.pages.dev"
   }
 }
