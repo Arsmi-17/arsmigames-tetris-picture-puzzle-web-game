@@ -32,6 +32,24 @@ body {
 }
 .animate-screen-dissolve { animation: screen-dissolve var(--celebration-ms, 1300ms) ease-in forwards; }
 
+@keyframes preview-in {
+  from { opacity: 0; transform: scale(1.04); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-preview-in { animation: preview-in .5s ease-out both; }
+
+@keyframes preview-bar {
+  from { width: 0; }
+  to { width: 100%; }
+}
+.animate-preview-bar { animation: preview-bar linear forwards; }
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-pop-in { animation: pop-in .35s ease-out both; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;

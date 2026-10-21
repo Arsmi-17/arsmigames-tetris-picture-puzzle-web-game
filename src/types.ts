@@ -1,3 +1,5 @@
+import type { Challenge, Picture, RoundRules } from './model';
+
 /** Represents a single cell position in a piece's local coordinate system. */
 export interface PieceCell {
   /** X offset within the piece's local grid (left = 0). */
@@ -48,22 +50,6 @@ export interface PieceTarget {
   rotation: number;
 }
 
-/** Difficulty levels mapped to board dimensions and partition count. */
-export interface DifficultyConfig {
-  id: DifficultyId;
-  label: string;
-  /** Number of columns in the game board. */
-  cols: number;
-  /** Number of rows in the game board. */
-  rows: number;
-  /** Fall speed in milliseconds. */
-  fallSpeed: number;
-  /** Description shown on the selection card. */
-  description: string;
-}
-
-export type DifficultyId = 'easy' | 'medium' | 'hard';
-
 /** The seven standard four-cell Tetris shapes. */
 export type TetrisShapeId =
   | 'I'
@@ -74,20 +60,19 @@ export type TetrisShapeId =
   | 'L'
   | 'J';
 
-/** Image option for the puzzle. */
-export interface ImageOption {
-  id: string;
-  label: string;
-  url: string;
+/** Everything needed to build and play one picture round. */
+export interface GameConfig {
+  picture: Picture;
+  challenge: Challenge;
+  rules: RoundRules;
+  /** Seed for the partition; the same seed rebuilds the same puzzle. */
+  seed: number;
 }
 
-/** All screens in the game. */
-export type GameScreen = 'start' | 'playing' | 'won';
-
-/** Full game configuration chosen on the start screen. */
-export interface GameConfig {
-  image: ImageOption;
-  difficulty: DifficultyConfig;
+/** Board dimensions the engine works with. */
+export interface BoardSize {
+  cols: number;
+  rows: number;
 }
 
 /** Mutable game state managed by the engine. */
@@ -124,4 +109,10 @@ export interface GameState {
   rejectedPiece: Piece | null;
   /** Elapsed time in seconds. */
   elapsed: number;
+  /** Incorrect drops this round. */
+  mistakes: number;
+  /** Whether the target outline is shown for the falling piece. */
+  hintOn: boolean;
+  /** Pieces that have been shown with a hint; each counts once. */
+  hintedPieceIds: Set<number>;
 }
