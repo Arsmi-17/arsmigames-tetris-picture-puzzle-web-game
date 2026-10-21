@@ -87,24 +87,25 @@ export function WinScreen({ config, state, exportable, badge = 'Puzzle complete'
   };
 
   return (
-    <main className="min-h-[100dvh] bg-[#0b1120] px-4 py-6 text-white sm:px-6 sm:py-10" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}>
-      <div className="mx-auto grid max-w-5xl gap-8 lg:min-h-[85dvh] lg:grid-cols-2 lg:items-center lg:gap-12">
-        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#151f32] p-3 shadow-2xl sm:p-5">
+    <main className="min-h-[100dvh] bg-[#0b1120] px-4 py-4 text-white sm:px-6 sm:py-10" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}>
+      <div className="mx-auto grid max-w-5xl gap-5 sm:gap-8 lg:min-h-[85dvh] lg:grid-cols-2 lg:items-center lg:gap-12">
+        {/* Capped on phones so the way forward stays on screen without scrolling. */}
+        <div className="relative mx-auto w-full max-w-[min(100%,38dvh)] overflow-hidden rounded-3xl border border-white/10 bg-[#151f32] p-3 shadow-2xl sm:p-5 lg:max-w-none">
           <img src={picture.url} alt={picture.alt || `Completed ${picture.title} picture`} className="aspect-square w-full rounded-2xl object-cover" />
           <div className="mt-4 flex items-center justify-between gap-3 px-1 text-sm text-slate-300"><span className="truncate">{picture.title}</span><span className="shrink-0">100% revealed</span></div>
           {picture.attribution && <p className="mt-1 px-1 text-xs text-slate-400">{picture.attribution}{picture.license ? ` · ${picture.license}` : ''}</p>}
         </div>
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-300"><Sparkles className="h-4 w-4" /> {badge}</div>
-          <h1 className="mt-5 text-4xl font-black tracking-tight sm:text-6xl">{heading}</h1>
-          <p className="mt-4 max-w-md text-lg text-slate-300">{message}</p>
-          <div className="mt-7 grid grid-cols-3 gap-3">
+        <div className="flex flex-col">
+          <div className="inline-flex items-center gap-2 self-start rounded-full bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-300"><Sparkles className="h-4 w-4" /> {badge}</div>
+          <h1 className="mt-3 text-3xl font-black tracking-tight sm:mt-5 sm:text-6xl">{heading}</h1>
+          <p className="mt-2 max-w-md text-base text-slate-300 sm:mt-4 sm:text-lg">{message}</p>
+          <div className="mt-4 grid grid-cols-3 gap-3 sm:mt-7">
             <div className="rounded-2xl bg-[#151f32] p-4"><span className="block text-xs text-slate-400">Time</span><strong className="mt-1 block text-2xl tabular-nums">{time}</strong></div>
             <div className="rounded-2xl bg-[#151f32] p-4"><span className="block text-xs text-slate-400">Score</span><strong className="mt-1 block text-2xl tabular-nums">{state.score}</strong></div>
             <div className="rounded-2xl bg-[#151f32] p-4"><span className="block text-xs text-slate-400">Misses</span><strong className="mt-1 block text-2xl tabular-nums">{state.mistakes}</strong></div>
           </div>
           {details}
-          <button ref={primaryRef} type="button" onClick={primary.onClick} className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-5 py-4 font-bold text-[#0b1120] hover:bg-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300">{primary.icon} {primary.label}</button>
+          <button ref={primaryRef} type="button" onClick={primary.onClick} className="mt-5 inline-flex sm:mt-7 w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-5 py-4 font-bold text-[#0b1120] hover:bg-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300">{primary.icon} {primary.label}</button>
           {exportable ? (
             <>
               <button type="button" onClick={() => void download()} disabled={downloading} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 px-5 py-3 font-medium hover:bg-white/20 disabled:opacity-50"><Download className="h-5 w-5" /> {downloading ? 'Preparing…' : 'Download completed picture'}</button>

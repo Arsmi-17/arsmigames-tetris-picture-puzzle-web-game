@@ -146,7 +146,7 @@ export function GameBoard({ state, config, cellSize, celebrating = false }: Game
         const target = state.targets.get(state.currentPiece.id);
         if (!target) return null;
         return target.cells.map((cell, index) => (
-          <div key={`hint-${index}`} className="pointer-events-none absolute z-10 bg-cyan-300/25 ring-2 ring-inset ring-cyan-300"
+          <div key={`hint-${index}`} data-testid="hint-cell" className="pointer-events-none absolute z-10 bg-cyan-300/25 ring-2 ring-inset ring-cyan-300"
             style={{ left: (target.col + cell.x) * cellSize, top: (target.row + cell.y + SPAWN_ROWS) * cellSize, width: cellSize, height: cellSize }} />
         ));
       })()}
@@ -191,6 +191,7 @@ export function GameBoard({ state, config, cellSize, celebrating = false }: Game
           return (
             <div
               key={`${state.currentPiece!.id}-${tileIdx}`}
+              data-testid="falling-cell"
               className="absolute z-30"
               style={{
                 left: (state.currentPiece!.col + cell.x) * cellSize,

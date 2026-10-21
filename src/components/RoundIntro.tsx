@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ImageOff, Play, RefreshCw, SkipForward } from 'lucide-react';
 import type { Challenge, Picture } from '@/model';
 import { loadPicture } from '@/pictures';
-import { prefersReducedMotion } from '@/celebration';
 
 interface RoundIntroProps {
   picture: Picture;
@@ -47,7 +46,7 @@ export function RoundIntro({ picture, challenge, eyebrow, onStart, onSkip, onBac
     return () => { cancelled = true; };
   }, [picture.url, attempt]);
 
-  const previewMs = prefersReducedMotion() ? Math.max(challenge.previewMs, 2500) : challenge.previewMs;
+  const previewMs = challenge.previewMs;
 
   useEffect(() => {
     if (load.kind !== 'ready') return;
