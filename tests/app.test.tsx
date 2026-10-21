@@ -130,7 +130,7 @@ describe('endless run', () => {
     expect(await screen.findByText('Out of misses')).toBeTruthy();
     expect(screen.getByText(/New personal best/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Menu' }));
-    expect(await screen.findByText(/Best: [\d,]+ points · 1 pictures/)).toBeTruthy();
+    expect(await screen.findByText(/Best: [\d,]+ points · 1 picture$/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Continue/ })).toBeNull();
   });
 
