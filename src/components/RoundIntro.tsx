@@ -14,6 +14,8 @@ interface RoundIntroProps {
   onSkip?: () => void;
   onBack: () => void;
   backLabel?: string;
+  /** Reported once per failed load attempt. */
+  onLoadError?: (message: string) => void;
 }
 
 type LoadState = { kind: 'loading' } | { kind: 'ready'; exportable: boolean } | { kind: 'error'; message: string };
@@ -22,13 +24,15 @@ type LoadState = { kind: 'loading' } | { kind: 'ready'; exportable: boolean } | 
  * Loads the round's picture and shows it briefly with the challenge, so the
  * player knows what they are building. Load failures offer retry or skip.
  */
-export function RoundIntro({ picture, challenge, eyebrow, onStart, onSkip, onBack, backLabel = 'Menu' }: RoundIntroProps) {
+export function RoundIntro({ picture, challenge, eyebrow, onStart, onSkip, onBack, backLabel = 'Menu', onLoadError }: RoundIntroProps) {
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const startRef = useRef<HTMLButtonElement>(null);
   const started = useRef(false);
   const onStartRef = useRef(onStart);
   onStartRef.current = onStart;
+  const onLoadErrorRef = useRef(onLoadError);
+  onLoadErrorRef.current = onLoadError;
 
   const start = useCallback((exportable: boolean) => {
     if (started.current) return;
@@ -41,7 +45,12 @@ export function RoundIntro({ picture, challenge, eyebrow, onStart, onSkip, onBac
     setLoad({ kind: 'loading' });
     loadPicture(picture.url).then(
       (result) => !cancelled && setLoad({ kind: 'ready', exportable: result.exportable }),
-      (error: unknown) => !cancelled && setLoad({ kind: 'error', message: error instanceof Error ? error.message : 'This picture could not be loaded.' }),
+      (error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : 'This picture could not be loaded.';
+        setLoad({ kind: 'error', message });
+        onLoadErrorRef.current?.(message);
+      },
     );
     return () => { cancelled = true; };
   }, [picture.url, attempt]);

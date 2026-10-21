@@ -7,6 +7,8 @@ export interface Env {
   CATALOG_BUCKET: R2Bucket;
   /** Gameplay events (Workers Analytics Engine). Optional in local dev. */
   ANALYTICS?: AnalyticsEngineDataset;
+  /** Workers Rate Limiting binding for event intake. Optional. */
+  EVENTS_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
 
   /** Cloudflare Access team domain, e.g. "myteam.cloudflareaccess.com". */
   ACCESS_TEAM_DOMAIN: string;

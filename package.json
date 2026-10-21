@@ -7,11 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json",
     "test": "vitest run",
     "verify:puzzles": "PUZZLE_SEEDS=2000 ENGINE_SEEDS=500 vitest run tests/puzzles.test.ts tests/engine.test.ts",
     "preview": "vite preview",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build"
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "analytics:report": "node scripts/analytics-report.mjs",
+    "worker:dev": "npm run build && wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply shape-reveal-catalog --local",
+    "db:migrate:remote": "wrangler d1 migrations apply shape-reveal-catalog --remote",
+    "deploy": "npm run check && wrangler deploy"
   },
   "dependencies": {
     "lucide-react": "^0.446.0",

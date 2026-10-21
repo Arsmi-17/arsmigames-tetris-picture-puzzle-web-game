@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from '@/App';
 import { CHAPTER_LENGTH } from '@/model';
+import { configureAnalytics, flush } from '@/analytics';
 
 const CELL = 75; // 360×600 area, 4×4 board + 4 spawn rows
 
@@ -132,6 +133,30 @@ describe('endless run', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Menu' }));
     expect(await screen.findByText(/Best: [\d,]+ points · 1 picture$/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Continue/ })).toBeNull();
+  });
+
+  it('sends a few anonymous events per picture, never one per move, and no URLs', async () => {
+    const payloads: string[] = [];
+    configureAnalytics({ enabled: true, sender: (body) => payloads.push(body) });
+    try {
+      render(<App />);
+      fireEvent.click(await screen.findByRole('button', { name: /^Relaxed/ }));
+      await playPicture();
+      fireEvent.click(screen.getByRole('button', { name: /Next picture/ }));
+      fireEvent.click(await screen.findByRole('button', { name: /Start now/ }));
+      await screen.findByRole('button', { name: 'Drop at once' });
+      fireEvent.click(screen.getByRole('button', { name: /Pause/ }));
+      fireEvent.click(screen.getByRole('button', { name: /Save and exit/ }));
+      flush();
+      const events = payloads.flatMap((p) => JSON.parse(p).events as { name: string; runId?: string }[]);
+      expect(events.map((e) => e.name).filter((n) => n !== 'client_error')).toEqual([
+        'run_started', 'picture_started', 'hint_used', 'picture_completed', 'picture_started',
+      ]);
+      expect(new Set(events.filter((e) => e.runId).map((e) => e.runId)).size).toBe(1);
+      expect(payloads.join('')).not.toMatch(/:\/\/|\/assets\//);
+    } finally {
+      configureAnalytics({ enabled: false });
+    }
   });
 
   it('Free play still works with the bundled pictures', async () => {

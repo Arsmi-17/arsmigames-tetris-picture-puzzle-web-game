@@ -13,6 +13,7 @@ import { useCatalog } from '@/catalog';
 import { preloadPicture } from '@/pictures';
 import { randomSeed } from '@/random';
 import { plural } from '@/format';
+import { track, trackError, visitKind } from '@/analytics';
 import * as runs from '@/run';
 import { CHAPTER_LENGTH, type Challenge, type Picture, type RoundResult, type Run, type RunMode } from '@/model';
 import type { GameConfig, GameState } from '@/types';
@@ -93,6 +94,7 @@ function App() {
 
   const startRun = useCallback((mode: RunMode) => {
     const fresh = runs.createRun(mode, pictures);
+    track({ name: 'run_started', mode, runId: fresh.runId, level: fresh.challengeLevel, visit: visitKind() });
     setImproved([]);
     commitRun(fresh);
     beginRound(fresh);
@@ -123,7 +125,22 @@ function App() {
   const handleReady = useCallback((canExport: boolean) => {
     setExportable(canExport);
     setScreen({ name: 'playing' });
-  }, []);
+    if (config) {
+      track({
+        name: 'picture_started',
+        mode: run?.mode ?? 'free',
+        runId: run?.runId,
+        pictureId: config.picture.id,
+        level: run?.challengeLevel ?? config.challenge.level,
+        chapter: run?.chapter,
+        stage: run?.stage,
+      });
+    }
+  }, [config, run]);
+
+  const handleLoadError = useCallback((message: string) => {
+    if (config) trackError('image_load', message, run?.mode ?? 'free', config.picture.id);
+  }, [config, run]);
 
   const skipPicture = useCallback(() => {
     if (!run) return;
@@ -135,6 +152,7 @@ function App() {
   const endCurrentRun = useCallback((reason: 'misses' | 'stopped', current: Run | null = run) => {
     if (!current) return;
     commitRun(runs.endRun(current));
+    trackRunEnded(current, reason);
     setScreen({ name: 'over', reason });
   }, [run, commitRun]);
 
@@ -150,8 +168,24 @@ function App() {
     for (let i = seenMistakes.current; i < mistakes; i += 1) next = runs.recordMistake(next);
     seenMistakes.current = mistakes;
     commitRun(next);
-    if (next.ended) setScreen({ name: 'over', reason: 'misses' });
+    if (next.ended) {
+      trackRunEnded(next, 'misses');
+      setScreen({ name: 'over', reason: 'misses' });
+    }
   }, [engine.state.mistakes, run, screen.name, commitRun]);
+
+  // One hint_used event each time the player turns hints on.
+  const hintOn = engine.state.hintOn;
+  useEffect(() => {
+    if (!hintOn || screen.name !== 'playing' || !config) return;
+    track({ name: 'hint_used', mode: run?.mode ?? 'free', runId: run?.runId, pictureId: config.picture.id, level: run?.challengeLevel ?? config.challenge.level });
+    // Only the off → on transition matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hintOn]);
+
+  useEffect(() => {
+    if (!catalog.loading && catalog.source !== 'live') trackError('catalog_unavailable', `using ${catalog.source} pictures`);
+  }, [catalog.loading, catalog.source]);
 
   // Round won: record it, then play the completion sequence.
   useEffect(() => {
@@ -169,8 +203,15 @@ function App() {
         score: state.score,
       };
       outcome = runs.completeRound(run, result, pictures);
+      track({
+        name: 'picture_completed', mode: run.mode, runId: run.runId, pictureId: result.pictureId, level: result.level,
+        chapter: run.chapter, stage: run.stage, seconds: result.seconds, mistakes: result.mistakes, hints: result.hints, score: result.score,
+      });
       commitRun(outcome.run);
       preloadPicture(pictureById.get(outcome.run.pictureId)?.url);
+    }
+    if (!run) {
+      track({ name: 'picture_completed', mode: 'free', pictureId: config.picture.id, level: config.challenge.level, seconds: state.elapsed, mistakes: state.mistakes, hints: state.hintedPieceIds.size, score: state.score });
     }
     setFinished({ state, outcome });
     setScreen({ name: 'celebrating' });
@@ -231,6 +272,7 @@ function App() {
       onStart={handleReady}
       onSkip={run && pictures.length > 1 ? skipPicture : undefined}
       onBack={run ? goHome : () => setScreen({ name: 'free-setup' })}
+      onLoadError={handleLoadError}
       backLabel={run ? 'Save and exit' : 'Back'}
     />;
   }
@@ -301,6 +343,10 @@ function App() {
     onReset={engine.reset}
     onHome={goHome}
   />;
+}
+
+function trackRunEnded(run: Run, reason: 'misses' | 'stopped') {
+  track({ name: 'run_ended', mode: run.mode, runId: run.runId, reason, chapter: run.chapter, stage: run.stage, pictures: run.picturesCompleted, score: run.score });
 }
 
 function HomeLoading() {
