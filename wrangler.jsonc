@@ -12,9 +12,12 @@
   "pages_build_output_dir": "./dist",
   "compatibility_date": "2025-10-01",
 
-  "analytics_engine_datasets": [
-    { "binding": "ANALYTICS", "dataset": "shape_reveal_events" }
-  ],
+  // Gameplay analytics (optional). Enable Analytics Engine in the Cloudflare
+  // dashboard (Workers & Pages -> Analytics Engine) first, then uncomment.
+  // Without it, /api/events still accepts events but does not store them.
+  // "analytics_engine_datasets": [
+  //   { "binding": "ANALYTICS", "dataset": "shape_reveal_events" }
+  // ],
 
   "vars": {
     "SUPABASE_URL": "https://REPLACE_ME.supabase.co",
