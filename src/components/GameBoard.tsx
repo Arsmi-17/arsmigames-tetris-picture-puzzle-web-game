@@ -3,6 +3,7 @@ import { DEFAULT_BOARD_IMAGE_OPACITY, toCssOpacity } from '@/boardOpacity';
 import { HEAL_MS, LIFT_DELAY_MS } from '@/celebration';
 import { PieceTile } from './PieceTile';
 import { SPAWN_ROWS } from '@/gameLogic';
+import { dropPosition } from '@/engine';
 
 interface GameBoardProps {
   state: GameState;
@@ -10,21 +11,14 @@ interface GameBoardProps {
   cellSize: number;
   /** Plays the completion sequence: seams dissolve, then the board lifts. */
   celebrating?: boolean;
-  showHint?: boolean;
 }
 
 /** Width of the white seams between tiles, matching the reference UI. */
 const SEAM = 2;
 
-/**
- * How strongly the finished picture shows through the empty board, 0 to 1.
- * Raise it to make the puzzle easier to read, drop it to 0 to hide it entirely.
- */
-export const BOARD_IMAGE_OPACITY = 0.25;
-
-export function GameBoard({ state, config, cellSize, celebrating = false, showHint = false }: GameBoardProps) {
-  const { cols, rows } = config.difficulty;
-  const imageUrl = config.image.url;
+export function GameBoard({ state, config, cellSize, celebrating = false }: GameBoardProps) {
+  const { cols, rows } = config.challenge;
+  const imageUrl = config.picture.url;
   const boardWidth = cols * cellSize;
   const boardHeight = rows * cellSize;
   const spawnHeight = SPAWN_ROWS * cellSize;
@@ -138,11 +132,21 @@ export function GameBoard({ state, config, cellSize, celebrating = false, showHi
         </div>
       </div>
 
-      {showHint && state.currentPiece && (() => {
+      {/* ---- Landing guide (Relaxed): where the piece comes to rest if dropped now ---- */}
+      {config.rules.landingPreview && state.currentPiece && !state.paused && (() => {
+        const landing = dropPosition(state.currentPiece, state.board, config.challenge);
+        if (landing.row === state.currentPiece.row) return null;
+        return landing.cells.map((cell, index) => (
+          <div key={`landing-${index}`} data-testid="landing-guide" className="pointer-events-none absolute z-20 border-2 border-dashed border-white/70 bg-white/10"
+            style={{ left: (landing.col + cell.x) * cellSize, top: (landing.row + cell.y + SPAWN_ROWS) * cellSize, width: cellSize, height: cellSize }} />
+        ));
+      })()}
+
+      {state.hintOn && state.currentPiece && (() => {
         const target = state.targets.get(state.currentPiece.id);
         if (!target) return null;
         return target.cells.map((cell, index) => (
-          <div key={`hint-${index}`} className="pointer-events-none absolute z-10 bg-cyan-300/25 ring-2 ring-inset ring-cyan-300"
+          <div key={`hint-${index}`} data-testid="hint-cell" className="pointer-events-none absolute z-10 bg-cyan-300/25 ring-2 ring-inset ring-cyan-300"
             style={{ left: (target.col + cell.x) * cellSize, top: (target.row + cell.y + SPAWN_ROWS) * cellSize, width: cellSize, height: cellSize }} />
         ));
       })()}
@@ -187,6 +191,7 @@ export function GameBoard({ state, config, cellSize, celebrating = false, showHi
           return (
             <div
               key={`${state.currentPiece!.id}-${tileIdx}`}
+              data-testid="falling-cell"
               className="absolute z-30"
               style={{
                 left: (state.currentPiece!.col + cell.x) * cellSize,

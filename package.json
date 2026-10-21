@@ -7,9 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "verify:puzzles": "node scripts/verify-puzzles.cjs",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json",
+    "test": "vitest run",
+    "verify:puzzles": "PUZZLE_SEEDS=2000 ENGINE_SEEDS=500 vitest run tests/puzzles.test.ts tests/engine.test.ts",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "analytics:report": "node scripts/analytics-report.mjs",
+    "worker:dev": "npm run build && wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply shape-reveal-catalog --local",
+    "db:migrate:remote": "wrangler d1 migrations apply shape-reveal-catalog --remote",
+    "deploy": "npm run check && wrangler deploy"
   },
   "dependencies": {
     "lucide-react": "^0.446.0",
@@ -17,7 +24,10 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251014.0",
     "@eslint/js": "^9.9.1",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.1",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
@@ -26,10 +36,13 @@
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",
     "globals": "^15.9.0",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.3.0",
-    "vite": "^5.4.2"
+    "vite": "^5.4.2",
+    "vitest": "^2.1.9",
+    "wrangler": "^4.42.0"
   }
 }

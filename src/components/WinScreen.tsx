@@ -1,16 +1,27 @@
-import { useState } from 'react';
-import { Download, RotateCcw, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Download, Sparkles } from 'lucide-react';
 import type { GameConfig, GameState } from '@/types';
+import { formatTime } from '@/format';
+
+export interface WinAction {
+  label: string;
+  onClick: () => void;
+  icon?: ReactNode;
+}
 
 interface WinScreenProps {
   config: GameConfig;
   state: GameState;
-  onReplay: () => void;
-  onHome: () => void;
-}
-
-function formatTime(seconds: number): string {
-  return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
+  /** False when the picture's host does not allow canvas export (CORS). */
+  exportable: boolean;
+  badge?: string;
+  heading?: string;
+  message?: string;
+  /** Extra content under the stats, e.g. chapter progress. */
+  details?: ReactNode;
+  /** The one-tap way forward (Next picture, Play again). */
+  primary: WinAction;
+  secondary?: WinAction[];
 }
 
 async function makeResult(imageUrl: string, label: string, time: string, score: number): Promise<Blob> {
@@ -41,18 +52,24 @@ async function makeResult(imageUrl: string, label: string, time: string, score: 
   return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not create the PNG.')), 'image/png'));
 }
 
-export function WinScreen({ config, state, onReplay, onHome }: WinScreenProps) {
+export function WinScreen({ config, state, exportable, badge = 'Puzzle complete', heading = 'Picture perfect.', message = 'You placed every shape and revealed the whole image.', details, primary, secondary = [] }: WinScreenProps) {
   const [status, setStatus] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const { picture } = config;
   const time = formatTime(state.elapsed);
-  const filename = `shape-reveal-${config.image.id}-${time.replace(':', '-')}.png`;
+  const filename = `shape-reveal-${picture.id}-${time.replace(':', '-')}.png`.replace(/[^a-z0-9.-]+/gi, '-');
+
+  useEffect(() => {
+    primaryRef.current?.focus();
+  }, []);
 
   const download = async () => {
     if (downloading) return;
     setDownloading(true);
     setStatus('Preparing your PNG…');
     try {
-      const blob = await makeResult(config.image.url, config.image.label, time, state.score);
+      const blob = await makeResult(picture.url, picture.title, time, state.score);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -70,28 +87,41 @@ export function WinScreen({ config, state, onReplay, onHome }: WinScreenProps) {
   };
 
   return (
-    <main className="min-h-[100dvh] bg-[#0b1120] px-4 py-6 text-white sm:px-6 sm:py-10">
-      <div className="mx-auto grid max-w-5xl gap-8 lg:min-h-[85dvh] lg:grid-cols-2 lg:items-center lg:gap-12">
-        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#151f32] p-3 shadow-2xl sm:p-5">
-          <img src={config.image.url} alt={`Completed ${config.image.label} picture`} className="aspect-square w-full rounded-2xl object-cover" />
-          <div className="mt-4 flex items-center justify-between px-1 text-sm text-slate-300"><span>{config.image.label}</span><span>100% revealed</span></div>
+    <main className="min-h-[100dvh] bg-[#0b1120] px-4 py-4 text-white sm:px-6 sm:py-10" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}>
+      <div className="mx-auto grid max-w-5xl gap-5 sm:gap-8 lg:min-h-[85dvh] lg:grid-cols-2 lg:items-center lg:gap-12">
+        {/* Capped on phones so the way forward stays on screen without scrolling. */}
+        <div className="relative mx-auto w-full max-w-[min(100%,38dvh)] overflow-hidden rounded-3xl border border-white/10 bg-[#151f32] p-3 shadow-2xl sm:p-5 lg:max-w-none">
+          <img src={picture.url} alt={picture.alt || `Completed ${picture.title} picture`} className="aspect-square w-full rounded-2xl object-cover" />
+          <div className="mt-4 flex items-center justify-between gap-3 px-1 text-sm text-slate-300"><span className="truncate">{picture.title}</span><span className="shrink-0">100% revealed</span></div>
+          {picture.attribution && <p className="mt-1 px-1 text-xs text-slate-400">{picture.attribution}{picture.license ? ` · ${picture.license}` : ''}</p>}
         </div>
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-300"><Sparkles className="h-4 w-4" /> Puzzle complete</div>
-          <h1 className="mt-5 text-4xl font-black tracking-tight sm:text-6xl">Picture perfect.</h1>
-          <p className="mt-4 max-w-md text-lg text-slate-300">You placed every shape and revealed the whole image.</p>
-          <div className="mt-7 grid grid-cols-3 gap-3">
+        <div className="flex flex-col">
+          <div className="inline-flex items-center gap-2 self-start rounded-full bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-300"><Sparkles className="h-4 w-4" /> {badge}</div>
+          <h1 className="mt-3 text-3xl font-black tracking-tight sm:mt-5 sm:text-6xl">{heading}</h1>
+          <p className="mt-2 max-w-md text-base text-slate-300 sm:mt-4 sm:text-lg">{message}</p>
+          <div className="mt-4 grid grid-cols-3 gap-3 sm:mt-7">
             <div className="rounded-2xl bg-[#151f32] p-4"><span className="block text-xs text-slate-400">Time</span><strong className="mt-1 block text-2xl tabular-nums">{time}</strong></div>
             <div className="rounded-2xl bg-[#151f32] p-4"><span className="block text-xs text-slate-400">Score</span><strong className="mt-1 block text-2xl tabular-nums">{state.score}</strong></div>
-            <div className="rounded-2xl bg-[#151f32] p-4"><span className="block text-xs text-slate-400">Shapes</span><strong className="mt-1 block text-2xl tabular-nums">{state.totalPieces}</strong></div>
+            <div className="rounded-2xl bg-[#151f32] p-4"><span className="block text-xs text-slate-400">Misses</span><strong className="mt-1 block text-2xl tabular-nums">{state.mistakes}</strong></div>
           </div>
-          <button type="button" onClick={() => void download()} disabled={downloading} className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-5 py-4 font-bold text-[#0b1120] hover:bg-cyan-200 disabled:opacity-50"><Download className="h-5 w-5" /> {downloading ? 'Preparing…' : 'Download completed picture'}</button>
-          <p className="mt-2 text-xs text-slate-400">PNG file · your browser will save it or ask where to save.</p>
+          {details}
+          <button ref={primaryRef} type="button" onClick={primary.onClick} className="mt-5 inline-flex sm:mt-7 w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-5 py-4 font-bold text-[#0b1120] hover:bg-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300">{primary.icon} {primary.label}</button>
+          {exportable ? (
+            <>
+              <button type="button" onClick={() => void download()} disabled={downloading} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 px-5 py-3 font-medium hover:bg-white/20 disabled:opacity-50"><Download className="h-5 w-5" /> {downloading ? 'Preparing…' : 'Download completed picture'}</button>
+              <p className="mt-2 text-xs text-slate-400">PNG file · your browser will save it or ask where to save.</p>
+            </>
+          ) : (
+            <p className="mt-3 text-xs text-slate-400">Download is unavailable for this picture because its image host does not allow it.</p>
+          )}
           <p role="status" aria-live="polite" className="mt-2 min-h-5 text-sm text-cyan-200">{status}</p>
-          <div className="mt-5 flex gap-3">
-            <button type="button" onClick={onReplay} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 px-4 py-3 font-medium hover:bg-white/20"><RotateCcw className="h-4 w-4" /> Play again</button>
-            <button type="button" onClick={onHome} className="flex-1 rounded-xl bg-white/10 px-4 py-3 font-medium hover:bg-white/20">New picture</button>
-          </div>
+          {secondary.length > 0 && (
+            <div className="mt-3 flex gap-3">
+              {secondary.map((action) => (
+                <button key={action.label} type="button" onClick={action.onClick} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 px-4 py-3 font-medium hover:bg-white/20">{action.icon} {action.label}</button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </main>

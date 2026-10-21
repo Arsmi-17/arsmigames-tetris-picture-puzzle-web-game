@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ChevronsDown, Clock3, Lightbulb, Pause, Play, RotateCcw } from 'lucide-react';
 import type { GameConfig, GameState } from '@/types';
+import { formatTime } from '@/format';
 import { GameBoard } from './GameBoard';
 import { SPAWN_ROWS } from '@/gameLogic';
 import { CELEBRATION_MS } from '@/celebration';
@@ -9,6 +10,13 @@ interface GameScreenProps {
   config: GameConfig;
   state: GameState;
   celebrating?: boolean;
+  /** Second header line; defaults to picture and board size. */
+  subtitle?: string;
+  /** Extra header content, such as Arcade misses left. */
+  status?: ReactNode;
+  /** Label for the pause panel's exit button. */
+  exitLabel?: string;
+  onToggleHint: () => void;
   onMoveLeft: () => void;
   onMoveRight: () => void;
   onMoveDown: () => void;
@@ -17,10 +25,6 @@ interface GameScreenProps {
   onResume: () => void;
   onReset: () => void;
   onHome: () => void;
-}
-
-function formatTime(seconds: number): string {
-  return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
 }
 
 function useCellSize(cols: number, rows: number) {
@@ -43,10 +47,16 @@ function useCellSize(cols: number, rows: number) {
   return { areaRef, cellSize };
 }
 
-export function GameScreen({ config, state, celebrating = false, onMoveLeft, onMoveRight, onMoveDown, onHardDrop, onPause, onResume, onReset, onHome }: GameScreenProps) {
-  const { cols, rows } = config.difficulty;
+export function GameScreen({ config, state, celebrating = false, subtitle, status, exitLabel = 'Menu', onToggleHint, onMoveLeft, onMoveRight, onMoveDown, onHardDrop, onPause, onResume, onReset, onHome }: GameScreenProps) {
+  const { cols, rows } = config.challenge;
   const { areaRef, cellSize } = useCellSize(cols, rows);
-  const [showHint, setShowHint] = useState(false);
+  const resumeRef = useRef<HTMLButtonElement>(null);
+  const showHint = state.hintOn;
+  const hintCost = config.rules.hintCost;
+
+  useEffect(() => {
+    if (state.paused) resumeRef.current?.focus();
+  }, [state.paused]);
   const percent = state.totalPieces ? Math.round((state.placedCount / state.totalPieces) * 100) : 0;
   const button = 'flex h-14 w-full items-center justify-center rounded-2xl border border-white/10 bg-[#25334a] text-white shadow-lg transition hover:bg-[#354861] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 active:scale-95 disabled:opacity-40 sm:h-16';
 
@@ -57,9 +67,10 @@ export function GameScreen({ config, state, celebrating = false, onMoveLeft, onM
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="truncate text-sm font-bold text-cyan-300">Shape Reveal</div>
-              <div className="truncate text-xs text-slate-300">{config.image.label} · {config.difficulty.label}</div>
+              <div className="truncate text-xs text-slate-300">{subtitle ?? `${config.picture.title} · ${config.challenge.label}`}</div>
             </div>
             <div className="flex items-center gap-3 sm:gap-5">
+              {status}
               <div className="text-right text-xs text-slate-300"><span className="block">Score</span><strong className="text-base text-white">{state.score}</strong></div>
               <div className="flex items-center gap-1 text-lg font-bold tabular-nums"><Clock3 className="h-4 w-4 text-cyan-300" />{formatTime(state.elapsed)}</div>
               <button type="button" onClick={onPause} aria-label="Pause game" className="rounded-lg p-2 text-slate-200 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"><Pause className="h-5 w-5" /></button>
@@ -73,11 +84,11 @@ export function GameScreen({ config, state, celebrating = false, onMoveLeft, onM
 
         <div className="mt-2 flex shrink-0 items-center justify-between text-xs text-slate-400">
           <span>Place each picture fragment in its matching space.</span>
-          <button type="button" onClick={() => setShowHint((value) => !value)} aria-pressed={showHint} className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 ${showHint ? 'bg-cyan-300/20 text-cyan-200' : 'hover:text-white'}`}><Lightbulb className="h-4 w-4" /> Hint</button>
+          <button type="button" onClick={onToggleHint} aria-pressed={showHint} title={hintCost ? `Each hinted piece costs ${hintCost} points` : undefined} className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 ${showHint ? 'bg-cyan-300/20 text-cyan-200' : 'hover:text-white'}`}><Lightbulb className="h-4 w-4" /> Hint{hintCost ? ` (−${hintCost})` : ''}</button>
         </div>
 
         <div ref={areaRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden py-2">
-          {cellSize > 0 && <GameBoard state={state} config={config} cellSize={cellSize} celebrating={celebrating} showHint={showHint} />}
+          {cellSize > 0 && <GameBoard state={state} config={config} cellSize={cellSize} celebrating={celebrating} />}
         </div>
       </div>
 
@@ -92,14 +103,14 @@ export function GameScreen({ config, state, celebrating = false, onMoveLeft, onM
 
       {state.paused && !state.won && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b1120]/95 p-5 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#151f32] p-7 text-center shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="pause-title" className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#151f32] p-7 text-center shadow-2xl">
             <Pause className="mx-auto h-10 w-10 text-cyan-300" />
-            <h2 className="mt-3 text-3xl font-bold">Paused</h2>
+            <h2 id="pause-title" className="mt-3 text-3xl font-bold">Paused</h2>
             <p className="mt-2 text-sm text-slate-300">Your picture is waiting.</p>
-            <button type="button" onClick={onResume} className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-5 py-4 font-bold text-[#0b1120] hover:bg-cyan-200"><Play className="h-5 w-5" /> Resume</button>
+            <button ref={resumeRef} type="button" onClick={onResume} className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-300 px-5 py-4 font-bold text-[#0b1120] hover:bg-cyan-200"><Play className="h-5 w-5" /> Resume</button>
             <div className="mt-3 flex gap-3">
               <button type="button" onClick={onReset} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-white/10 px-4 py-3 text-sm hover:bg-white/20"><RotateCcw className="h-4 w-4" /> Restart</button>
-              <button type="button" onClick={onHome} className="flex-1 rounded-xl bg-white/10 px-4 py-3 text-sm hover:bg-white/20">Menu</button>
+              <button type="button" onClick={onHome} className="flex-1 rounded-xl bg-white/10 px-4 py-3 text-sm hover:bg-white/20">{exitLabel}</button>
             </div>
           </div>
         </div>

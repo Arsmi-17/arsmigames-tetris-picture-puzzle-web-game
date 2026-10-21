@@ -4,54 +4,10 @@ import type {
   PieceTarget,
   TetrisShapeId,
   GridTile,
-  DifficultyConfig,
-  DifficultyId,
-  ImageOption,
 } from './types';
+import { shuffle, type Rng } from './random';
 
 export const SPAWN_ROWS = 4;
-
-/** Difficulty presets: board dimensions and fall speed. */
-export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
-  easy: {
-    id: 'easy',
-    label: 'Easy',
-    cols: 4,
-    rows: 4,
-    fallSpeed: 3000,
-    description: '4×4 picture · 4 shapes, relaxed pace',
-  },
-  medium: {
-    id: 'medium',
-    label: 'Medium',
-    cols: 8,
-    rows: 8,
-    fallSpeed: 2200,
-    description: '8×8 picture · 16 shapes, steady pace',
-  },
-  hard: {
-    id: 'hard',
-    label: 'Hard',
-    cols: 10,
-    rows: 10,
-    fallSpeed: 1250,
-    description: '10×10 picture · 25 shapes, fast pace',
-  },
-};
-
-/** Original sample artwork shipped in /public/assets. */
-export const PUZZLE_IMAGES: ImageOption[] = [
-  {
-    id: 'aurora',
-    label: 'Aurora Lake',
-    url: '/assets/aurora.svg',
-  },
-  {
-    id: 'sunset',
-    label: 'Sunset Cove',
-    url: '/assets/sunset.svg',
-  },
-];
 
 /** Base Tetris shapes in their default rotation (cells relative to anchor 0,0). */
 const SHAPES: Record<TetrisShapeId, PieceCell[]> = {
@@ -191,7 +147,7 @@ export interface PartitionResult {
  * Partition the grid by trying random shapes at random positions,
  * using backtracking to ensure complete coverage.
  */
-export function partitionGrid(cols: number, rows: number): PartitionResult[] {
+export function partitionGrid(cols: number, rows: number, rng: Rng = Math.random): PartitionResult[] {
   if (cols < 4 || rows < 4 || cols % 2 !== 0 || rows % 2 !== 0) {
     throw new Error('Picture dimensions must be even and at least 4x4.');
   }
@@ -203,7 +159,7 @@ export function partitionGrid(cols: number, rows: number): PartitionResult[] {
     const tiledRows = Math.floor(rows / 4) * 4;
     for (let row = 0; row < tiledRows; row += 4) {
       for (let col = 0; col < tiledCols; col += 4) {
-        for (const part of partitionGrid(4, 4)) {
+        for (const part of partitionGrid(4, 4, rng)) {
           results.push({ ...part, originCol: part.originCol + col, originRow: part.originRow + row });
         }
       }
@@ -273,9 +229,10 @@ export function partitionGrid(cols: number, rows: number): PartitionResult[] {
     if (!empty) return true; // all filled
 
     // Shuffle candidates for variety, but only try shapes that cover the first empty cell.
-    const shuffled = candidates
-      .filter((cand) => cand.cells.some((cell) => cell.x === 0 && cell.y === 0))
-      .sort(() => Math.random() - 0.5);
+    const shuffled = shuffle(
+      candidates.filter((cand) => cand.cells.some((cell) => cell.x === 0 && cell.y === 0)),
+      rng,
+    );
 
     for (const cand of shuffled) {
       if (canPlace(cand.cells, empty.col, empty.row)) {
