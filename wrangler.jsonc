@@ -12,7 +12,7 @@
     {
       "binding": "DB",
       "database_name": "shape-reveal-catalog",
-      "database_id": "REPLACE_ME_D1_DATABASE_ID",
+      "database_id": "a242f6c7-56b4-48cc-9b41-f0114428b9f6",
       "migrations_dir": "migrations"
     }
   ],
