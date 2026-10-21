@@ -33,7 +33,7 @@ To run the full stack (catalog, admin, events) locally with Wrangler, see [docs/
 | React UI and real-time loop (gravity, clock, input) | `src/App.tsx`, `src/components/`, `src/useGameEngine.ts` |
 | Catalog loading with device cache and built-in fallback | `src/catalog.ts`, `shared/catalog.ts` |
 | Admin UI (`/admin/`) | `admin/index.html`, `src/admin/` |
-| Cloudflare Worker: assets, catalog, admin API, event intake | `worker/src/`, `wrangler.jsonc`, `migrations/` |
+| Pages advanced-mode worker (`dist/_worker.js`): catalog, admin API, event intake | `worker/src/`, `wrangler.jsonc`, `migrations/` |
 | Analytics events and report | `shared/events.ts`, `src/analytics.ts`, `scripts/analytics-report.mjs` |
 
 ### Guarantees the tests hold

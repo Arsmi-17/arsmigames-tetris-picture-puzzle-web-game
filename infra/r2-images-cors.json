@@ -2,7 +2,7 @@
   "rules": [
     {
       "allowed": {
-        "origins": ["https://play.example.com", "https://admin.example.com"],
+        "origins": ["https://arsmigames-tetris-picture-puzzle-web-game.pages.dev"],
         "methods": ["GET", "HEAD"]
       },
       "maxAgeSeconds": 86400
