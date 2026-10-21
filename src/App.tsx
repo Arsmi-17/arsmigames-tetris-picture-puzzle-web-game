@@ -7,7 +7,7 @@ import { RoundIntro } from '@/components/RoundIntro';
 import { useGameEngine } from '@/useGameEngine';
 import { CELEBRATION_MS, prefersReducedMotion } from '@/celebration';
 import { rulesFor } from '@/challenge';
-import { SAMPLE_PICTURES } from '@/pictures';
+import { useCatalog } from '@/catalog';
 import { randomSeed } from '@/random';
 import type { Challenge, Picture } from '@/model';
 import type { GameConfig, GameState } from '@/types';
@@ -20,6 +20,7 @@ function App() {
   const [exportable, setExportable] = useState(true);
   const [completedState, setCompletedState] = useState<GameState | null>(null);
   const engine = useGameEngine(phase === 'playing' || phase === 'celebrating' ? config : null);
+  const catalog = useCatalog();
 
   const handleStart = useCallback((picture: Picture, challenge: Challenge) => {
     setCompletedState(null);
@@ -57,7 +58,7 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [phase]);
 
-  if (phase === 'start' || !config) return <StartScreen pictures={SAMPLE_PICTURES} onStart={handleStart} />;
+  if (phase === 'start' || !config) return <StartScreen key={catalog.version ?? catalog.source} pictures={catalog.pictures} onStart={handleStart} />;
   if (phase === 'intro') {
     return <RoundIntro picture={config.picture} challenge={config.challenge} onStart={handleReady} onBack={handleHome} />;
   }

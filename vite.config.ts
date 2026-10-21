@@ -23,6 +23,15 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      // The public game and the Access-protected admin page are separate entries.
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        admin: fileURLToPath(new URL('./admin/index.html', import.meta.url)),
+      },
+    },
+  },
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
