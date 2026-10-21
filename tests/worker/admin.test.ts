@@ -140,11 +140,16 @@ describe('admin sign-in', () => {
       const response = await signIn(ADMIN_EMAIL, overrides.ADMIN_KEY ?? ADMIN_KEY);
       expect(response.status).toBe(503);
       expect((await response.json() as { error: string }).error).toMatch(/not set up on this deployment/);
-      expect(await (await send(new Request(`${SITE}/api/admin/login`))).json()).toEqual({ configured: false });
+      expect((await (await send(new Request(`${SITE}/api/admin/login`))).json() as { configured: boolean }).configured).toBe(false);
       expect((await api('/api/admin/me')).status).toBe(401);
     }
+    env = createEnv({ ADMIN_KEY: 'short' });
+    expect(await (await send(new Request(`${SITE}/api/admin/login`))).json()).toEqual({ configured: false, emailSet: true, keySet: true, keyLongEnough: false });
     env = createEnv();
-    expect(await (await send(new Request(`${SITE}/api/admin/login`))).json()).toEqual({ configured: true });
+    const ok = await send(new Request(`${SITE}/api/admin/login`));
+    const text = await ok.text();
+    expect(JSON.parse(text)).toEqual({ configured: true, emailSet: true, keySet: true, keyLongEnough: true });
+    expect(text).not.toContain(ADMIN_KEY);
   });
 
   it('accepts the values from the screenshot, with stray spaces around them', async () => {

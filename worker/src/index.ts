@@ -3,7 +3,7 @@ import { handleAdminApi } from './admin';
 import { CATALOG_PATH, serveCatalog } from './catalog';
 import { handleEvents } from './events';
 import { error, json, readJson, withHeaders } from './http';
-import { checkCredentials, clearSessionCookie, createSessionCookie, loginBlocked, signInConfigured, verifySession } from './session';
+import { checkCredentials, clearSessionCookie, createSessionCookie, loginBlocked, signInConfigured, signInSetup, verifySession } from './session';
 import type { CatalogStore } from './store';
 import { createSupabaseStore } from './supabase';
 
@@ -50,7 +50,7 @@ export async function handleRequest(request: Request, env: Env, ctx: ExecutionCo
 
   if (path === '/api/admin/login') {
     // Lets the sign-in page explain a missing setup instead of "do not match".
-    if (request.method === 'GET') return json({ configured: signInConfigured(env) });
+    if (request.method === 'GET') return json(signInSetup(env));
     if (request.method !== 'POST') return error(405, 'Method not allowed.');
     if (!signInConfigured(env)) return error(503, NOT_CONFIGURED);
     const origin = request.headers.get('origin');

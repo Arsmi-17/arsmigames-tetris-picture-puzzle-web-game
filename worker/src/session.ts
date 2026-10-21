@@ -45,6 +45,17 @@ export function signInConfigured(env: Env): boolean {
 
 const configured = signInConfigured;
 
+/** Which sign-in settings this deployment received. Never includes the values. */
+export function signInSetup(env: Env): { configured: boolean; emailSet: boolean; keySet: boolean; keyLongEnough: boolean } {
+  const key = adminKey(env);
+  return {
+    configured: signInConfigured(env),
+    emailSet: Boolean(env.ADMIN_EMAIL?.trim()),
+    keySet: key.length > 0,
+    keyLongEnough: key.length >= MIN_KEY_LENGTH,
+  };
+}
+
 async function hmacKey(env: Env): Promise<CryptoKey> {
   const material = await crypto.subtle.digest('SHA-256', encoder.encode(`shape-reveal-session:${adminKey(env)}`));
   return crypto.subtle.importKey('raw', material, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);

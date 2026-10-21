@@ -8,10 +8,11 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [configured, setConfigured] = useState(true);
+  const [setup, setSetup] = useState<{ configured: boolean; emailSet: boolean; keySet: boolean; keyLongEnough: boolean } | null>(null);
+  const configured = setup?.configured ?? true;
 
   useEffect(() => {
-    api<{ configured: boolean }>('/api/admin/login').then((r) => setConfigured(r.configured), () => undefined);
+    api<NonNullable<typeof setup>>('/api/admin/login').then(setSetup, () => undefined);
   }, []);
 
   const submit = async (event: React.FormEvent) => {
@@ -35,7 +36,11 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
       <h1 id="sign-in-title" className="text-xl font-bold">Sign in to manage pictures</h1>
       {!configured && (
         <p role="alert" className="rounded-xl bg-amber-300/10 p-3 text-sm text-amber-100">
-          Sign-in is not set up on this deployment yet. Add <code>ADMIN_EMAIL</code> and <code>ADMIN_KEY</code> (12+ characters) to the Pages project&apos;s Production variables, then redeploy.
+          Sign-in is not set up on this deployment yet. This deployment received:
+          <span className="mt-2 block font-mono text-xs">
+            ADMIN_EMAIL: {setup?.emailSet ? 'set' : 'missing'} · ADMIN_KEY: {setup?.keySet ? (setup.keyLongEnough ? 'set' : 'too short (needs 12+)') : 'missing'}
+          </span>
+          <span className="mt-2 block">Save them as Production secrets in the Pages project, then create a new deployment.</span>
         </p>
       )}
       <label className="block text-sm font-medium" htmlFor="admin-email">Email
