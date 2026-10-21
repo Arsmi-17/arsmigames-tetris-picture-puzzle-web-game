@@ -1,6 +1,6 @@
 # Shape Reveal: game vision and implementation plan
 
-Status: product plan, not a description of completed features. Updated 2026-10-21.
+Status: product plan. Phases 1–4 are implemented and phase 5 is prepared but not deployed; see the README and docs/DEPLOYMENT.md. Updated 2026-10-21.
 
 ## What the project is
 

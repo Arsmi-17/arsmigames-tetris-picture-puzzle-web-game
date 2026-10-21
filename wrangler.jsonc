@@ -7,6 +7,12 @@
   "compatibility_date": "2025-10-01",
   "observability": { "enabled": true },
 
+  // Production hostnames. Uncomment once the zone is on Cloudflare.
+  // "routes": [
+  //   { "pattern": "play.example.com", "custom_domain": true },
+  //   { "pattern": "admin.example.com", "custom_domain": true }
+  // ],
+
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
