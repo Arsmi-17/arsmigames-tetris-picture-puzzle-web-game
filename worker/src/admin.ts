@@ -1,17 +1,9 @@
 import { CATALOG_MAX_CHALLENGE, PICTURE_ID_PATTERN } from '../../shared/catalog';
 import type { Env } from './env';
-import type { AdminIdentity } from './access';
+import type { AdminIdentity } from './session';
 import { checkImage, parseHosts, MAX_IMAGE_BYTES, MAX_THUMB_BYTES, type ImageCheck } from './images';
-import {
-  audit,
-  catalogStatus,
-  findByUrl,
-  getPicture,
-  listPictures,
-  publishCatalog,
-  type PictureRow,
-  type PublishOutcome,
-} from './catalog';
+import { catalogStatus, publishCatalog, type PublishOutcome } from './catalog';
+import { DuplicateError, type CatalogStore, type PictureRow } from './store';
 import { error, json, readJson } from './http';
 
 const MAX_BODY_BYTES = 16 * 1024;
@@ -83,14 +75,14 @@ interface ImageReport {
   duplicateOf?: string;
 }
 
-async function checkPictureImages(env: Env, url: string, thumbUrl: string | null, selfId?: string): Promise<ImageReport> {
+async function checkPictureImages(env: Env, store: CatalogStore, url: string, thumbUrl: string | null, selfId?: string): Promise<ImageReport> {
   const hosts = parseHosts(env.IMAGE_HOSTS);
   const [image, thumb] = await Promise.all([
     checkImage(url, { allowedHosts: hosts, gameOrigin: env.GAME_ORIGIN, maxBytes: MAX_IMAGE_BYTES }),
     thumbUrl ? checkImage(thumbUrl, { allowedHosts: hosts, gameOrigin: env.GAME_ORIGIN, maxBytes: MAX_THUMB_BYTES, thumbnail: true }) : Promise.resolve(undefined),
   ]);
   const report: ImageReport = { image, thumb };
-  const existing = await findByUrl(env, url);
+  const existing = await store.findByUrl(url);
   if (existing && existing.id !== selfId) {
     report.duplicateOf = existing.id;
     image.errors.push(`This image is already in the catalog as "${existing.title}".`);
@@ -104,39 +96,40 @@ function reportOk(report: ImageReport): boolean {
 }
 
 /**
- * Admin API. The caller has already verified the Access identity; this layer
+ * Admin API. The caller has already verified the admin session; this layer
  * adds CSRF protection for writes, input validation and auditing.
  */
-export async function handleAdminApi(request: Request, env: Env, admin: AdminIdentity, path: string): Promise<Response> {
+export async function handleAdminApi(request: Request, env: Env, store: CatalogStore, admin: AdminIdentity, path: string): Promise<Response> {
   const method = request.method.toUpperCase();
   if (method !== 'GET') {
-    // Access authenticates with a cookie, so refuse cross-site writes.
+    // The session is a cookie, so refuse cross-site writes.
     const origin = request.headers.get('origin');
     if (!origin || origin !== new URL(request.url).origin) return error(403, 'Cross-origin admin requests are not allowed.');
   }
+  const publish = () => publishCatalog(store, admin.email, request.url);
 
   if (method === 'GET' && path === '/api/admin/me') return json({ email: admin.email });
 
   if (method === 'GET' && path === '/api/admin/pictures') {
-    const [pictures, status] = await Promise.all([listPictures(env), catalogStatus(env)]);
+    const [pictures, status] = await Promise.all([store.listPictures(), catalogStatus(store)]);
     return json({ pictures, status });
   }
 
-  if (method === 'GET' && path === '/api/admin/status') return json(await catalogStatus(env));
+  if (method === 'GET' && path === '/api/admin/status') return json(await catalogStatus(store));
 
   if (method === 'POST' && path === '/api/admin/check-image') {
     const body = (await readJson(request, MAX_BODY_BYTES)) as Record<string, unknown> | undefined;
     if (!body || typeof body.url !== 'string') return error(400, 'Send { url } as JSON.');
     const thumbUrl = typeof body.thumbUrl === 'string' && body.thumbUrl.trim() ? body.thumbUrl.trim() : null;
     const selfId = typeof body.id === 'string' ? body.id : undefined;
-    const report = await checkPictureImages(env, body.url.trim(), thumbUrl, selfId);
+    const report = await checkPictureImages(env, store, body.url.trim(), thumbUrl, selfId);
     return json({ ok: reportOk(report), ...report });
   }
 
   if (method === 'POST' && path === '/api/admin/publish') {
-    const catalog = await publishCatalog(env, admin.email);
-    await audit(env, admin.email, 'republish', null, catalog);
-    return json({ catalog }, catalog.status === 'succeeded' ? 200 : 502);
+    const catalog = await publish();
+    await store.audit(admin.email, 'republish', null, catalog);
+    return json({ catalog });
   }
 
   if (method === 'POST' && path === '/api/admin/reorder') {
@@ -145,50 +138,61 @@ export async function handleAdminApi(request: Request, env: Env, admin: AdminIde
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > 1000 || !ids.every((id) => typeof id === 'string')) {
       return error(400, 'Send { ids: [...] } with every picture id in the new order.');
     }
-    const existing = await listPictures(env);
-    const known = new Set(existing.map((p) => p.id));
-    if (ids.length !== known.size || new Set(ids).size !== ids.length || !ids.every((id) => known.has(id))) {
+    const existing = await store.listPictures();
+    const byId = new Map(existing.map((p) => [p.id, p]));
+    if (ids.length !== byId.size || new Set(ids).size !== ids.length || !ids.every((id) => byId.has(id))) {
       return error(409, 'The picture list changed; reload and try again.');
     }
-    const now = new Date().toISOString();
-    await env.DB.batch(ids.map((id, index) =>
-      env.DB.prepare('UPDATE pictures SET sort_order = ?, updated_at = CASE WHEN sort_order != ? THEN ? ELSE updated_at END, updated_by = ? WHERE id = ?')
-        .bind(index, index, now, admin.email, id),
-    ));
-    await audit(env, admin.email, 'reorder', null, { count: ids.length });
-    const catalog = existing.some((p) => p.status === 'published') ? await publishCatalog(env, admin.email) : undefined;
-    return json({ pictures: await listPictures(env), catalog });
+    const changed = ids.map((id, index) => ({ id, index })).filter(({ id, index }) => byId.get(id)!.sort_order !== index);
+    await Promise.all(changed.map(({ id, index }) => store.updatePicture(id, { sort_order: index, updated_by: admin.email })));
+    await store.audit(admin.email, 'reorder', null, { count: changed.length });
+    const touchesPublished = changed.some(({ id }) => byId.get(id)!.status === 'published');
+    const catalog = touchesPublished ? await publish() : undefined;
+    return json({ pictures: await store.listPictures(), catalog });
   }
 
   if (method === 'POST' && path === '/api/admin/pictures') {
     const parsed = parsePictureInput(await readJson(request, MAX_BODY_BYTES));
     if (!parsed.ok) return error(400, 'Some details need fixing.', { errors: parsed.errors });
     const input = parsed.value;
-    const report = await checkPictureImages(env, input.url, input.thumbUrl);
+    const report = await checkPictureImages(env, store, input.url, input.thumbUrl);
     if (!reportOk(report)) return error(422, 'The image did not pass the checks.', { report });
 
-    const id = slug(input.title);
-    const now = new Date().toISOString();
-    const order = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM pictures').first<{ next: number }>();
-    await env.DB.prepare(
-      `INSERT INTO pictures (id, title, theme, url, thumb_url, alt, attribution, license, min_challenge, max_challenge,
-        status, sort_order, width, height, bytes, content_type, created_at, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      id, input.title, input.theme, input.url, input.thumbUrl, input.alt, input.attribution, input.license,
-      input.minChallenge, input.maxChallenge, order?.next ?? 0,
-      report.image.width ?? null, report.image.height ?? null, report.image.bytes ?? null, report.image.contentType ?? null,
-      now, now, admin.email,
-    ).run();
-    await audit(env, admin.email, 'create', id, { title: input.title });
-    return json({ picture: await getPicture(env, id), report }, 201);
+    const existing = await store.listPictures();
+    const nextOrder = existing.reduce((max, p) => Math.max(max, p.sort_order), -1) + 1;
+    try {
+      const picture = await store.insertPicture({
+        id: slug(input.title),
+        title: input.title,
+        theme: input.theme,
+        url: input.url,
+        thumb_url: input.thumbUrl,
+        alt: input.alt,
+        attribution: input.attribution,
+        license: input.license,
+        min_challenge: input.minChallenge,
+        max_challenge: input.maxChallenge,
+        status: 'draft',
+        sort_order: nextOrder,
+        width: report.image.width ?? null,
+        height: report.image.height ?? null,
+        bytes: report.image.bytes ?? null,
+        content_type: report.image.contentType ?? null,
+        updated_by: admin.email,
+      });
+      await store.audit(admin.email, 'create', picture.id, { title: input.title });
+      return json({ picture, report }, 201);
+    } catch (cause) {
+      if (cause instanceof DuplicateError) return error(409, 'This image is already in the catalog.');
+      throw cause;
+    }
   }
 
   const match = path.match(/^\/api\/admin\/pictures\/([^/]+)(?:\/(publish|unpublish))?$/);
   if (match && PICTURE_ID_PATTERN.test(match[1])) {
     const id = match[1];
     const action = match[2];
-    const current = await getPicture(env, id);
+    const current = await store.getPicture(id);
     if (!current) return error(404, 'Picture not found.');
 
     if (method === 'GET' && !action) return json({ picture: current });
@@ -196,15 +200,14 @@ export async function handleAdminApi(request: Request, env: Env, admin: AdminIde
     if (method === 'POST' && action) {
       const status = action === 'publish' ? 'published' : 'unpublished';
       if (action === 'publish') {
-        // Re-check at publish time: the file or bucket CORS may have changed.
-        const report = await checkPictureImages(env, current.url, current.thumb_url, id);
+        // Re-check at publish time: the file or its host may have changed.
+        const report = await checkPictureImages(env, store, current.url, current.thumb_url, id);
         if (!reportOk(report)) return error(422, 'The image no longer passes the checks.', { report });
       }
-      await env.DB.prepare('UPDATE pictures SET status = ?, updated_at = ?, updated_by = ? WHERE id = ?')
-        .bind(status, new Date().toISOString(), admin.email, id).run();
-      await audit(env, admin.email, action, id);
-      const catalog = await publishCatalog(env, admin.email);
-      return json({ picture: await getPicture(env, id), catalog });
+      const picture = await store.updatePicture(id, { status, updated_by: admin.email });
+      await store.audit(admin.email, action, id);
+      const catalog = await publish();
+      return json({ picture, catalog });
     }
 
     if (method === 'PUT' && !action) {
@@ -213,24 +216,36 @@ export async function handleAdminApi(request: Request, env: Env, admin: AdminIde
       const input = parsed.value;
       let report: ImageReport | undefined;
       if (input.url !== current.url || input.thumbUrl !== current.thumb_url) {
-        report = await checkPictureImages(env, input.url, input.thumbUrl, id);
+        report = await checkPictureImages(env, store, input.url, input.thumbUrl, id);
         if (!reportOk(report)) return error(422, 'The image did not pass the checks.', { report });
       }
-      await env.DB.prepare(
-        `UPDATE pictures SET title = ?, theme = ?, url = ?, thumb_url = ?, alt = ?, attribution = ?, license = ?,
-          min_challenge = ?, max_challenge = ?, width = COALESCE(?, width), height = COALESCE(?, height),
-          bytes = COALESCE(?, bytes), content_type = COALESCE(?, content_type), updated_at = ?, updated_by = ?
-         WHERE id = ?`,
-      ).bind(
-        input.title, input.theme, input.url, input.thumbUrl, input.alt, input.attribution, input.license,
-        input.minChallenge, input.maxChallenge,
-        report?.image.width ?? null, report?.image.height ?? null, report?.image.bytes ?? null, report?.image.contentType ?? null,
-        new Date().toISOString(), admin.email, id,
-      ).run();
-      await audit(env, admin.email, 'edit', id);
-      let catalog: PublishOutcome | undefined;
-      if (current.status === 'published') catalog = await publishCatalog(env, admin.email);
-      return json({ picture: await getPicture(env, id), report, catalog });
+      try {
+        const picture = await store.updatePicture(id, {
+          title: input.title,
+          theme: input.theme,
+          url: input.url,
+          thumb_url: input.thumbUrl,
+          alt: input.alt,
+          attribution: input.attribution,
+          license: input.license,
+          min_challenge: input.minChallenge,
+          max_challenge: input.maxChallenge,
+          ...(report ? {
+            width: report.image.width ?? current.width,
+            height: report.image.height ?? current.height,
+            bytes: report.image.bytes ?? current.bytes,
+            content_type: report.image.contentType ?? current.content_type,
+          } : {}),
+          updated_by: admin.email,
+        });
+        await store.audit(admin.email, 'edit', id);
+        let catalog: PublishOutcome | undefined;
+        if (current.status === 'published') catalog = await publish();
+        return json({ picture, report, catalog });
+      } catch (cause) {
+        if (cause instanceof DuplicateError) return error(409, 'This image is already in the catalog.');
+        throw cause;
+      }
     }
   }
 

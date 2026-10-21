@@ -14,8 +14,6 @@
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
     "analytics:report": "node scripts/analytics-report.mjs",
     "worker:dev": "npm run build && wrangler pages dev",
-    "db:migrate:local": "wrangler d1 migrations apply shape-reveal-catalog --local",
-    "db:migrate:remote": "wrangler d1 migrations apply shape-reveal-catalog --remote",
     "deploy": "npm run check && wrangler pages deploy --branch main",
     "build:worker": "esbuild worker/src/index.ts --bundle --format=esm --platform=neutral --target=es2022 --main-fields=module,main --outfile=dist/_worker.js"
   },

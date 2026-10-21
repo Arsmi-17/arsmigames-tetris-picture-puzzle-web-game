@@ -1,28 +1,41 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleRequest } from '../../worker/src/index';
-import { clearAccessKeyCache } from '../../worker/src/access';
 import { readDimensions } from '../../worker/src/images';
+import { resetLoginAttempts, SESSION_COOKIE } from '../../worker/src/session';
 import { parseCatalog } from '../../shared/catalog';
 import {
-  AUD, IMAGE_HOST, ORIGIN, TEAM, createEnv, createSigner, ctx, installCaches, pngHeader, validClaims,
-  type FakeImage, type TestSigner,
+  ADMIN_EMAIL, ADMIN_KEY, IMAGE_HOST, ORIGIN, createEnv, createMemoryStore, ctx, installCaches, pngHeader,
+  type FakeImage, type MemoryStore,
 } from './fakes';
 
 const SITE = 'https://play.example.com';
-let signer: TestSigner;
 let images: Map<string, FakeImage>;
 let env: ReturnType<typeof createEnv>;
-let token: string;
+let store: MemoryStore;
+let cookie: string;
 
-beforeAll(async () => {
-  signer = await createSigner();
-});
+function send(request: Request) {
+  return handleRequest(request, env, ctx, { store });
+}
+
+async function signIn(email = ADMIN_EMAIL, key = ADMIN_KEY, ip = '203.0.113.1') {
+  return send(new Request(`${SITE}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: SITE, 'cf-connecting-ip': ip },
+    body: JSON.stringify({ email, key }),
+  }));
+}
+
+function sessionFrom(response: Response): string {
+  const header = response.headers.get('set-cookie') ?? '';
+  return header.split(';')[0];
+}
 
 beforeEach(async () => {
-  clearAccessKeyCache();
+  resetLoginAttempts();
   installCaches();
   env = createEnv();
-  token = await signer.sign(validClaims());
+  store = createMemoryStore();
   images = new Map([
     [`https://${IMAGE_HOST}/pics/lake-v1.png`, {}],
     [`https://${IMAGE_HOST}/pics/lake-v2.png`, {}],
@@ -31,7 +44,6 @@ beforeEach(async () => {
   ]);
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    if (url === `https://${TEAM}/cdn-cgi/access/certs`) return Response.json(signer.jwks);
     const image = images.get(url);
     if (!image) return new Response('missing', { status: 404 });
     const origin = new Headers(init?.headers).get('origin');
@@ -44,23 +56,24 @@ beforeEach(async () => {
     if (cors && origin) headers.set('access-control-allow-origin', cors);
     return new Response(image.body ?? pngHeader(image.width ?? 1200, image.height ?? 1200), { status: image.status ?? 200, headers });
   }));
+  cookie = sessionFrom(await signIn());
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function api(path: string, init: { method?: string; body?: unknown; auth?: string | null; origin?: string | null } = {}) {
+function api(path: string, init: { method?: string; body?: unknown; session?: string | null; origin?: string | null } = {}) {
   const headers = new Headers({ 'content-type': 'application/json' });
-  const auth = init.auth === undefined ? token : init.auth;
-  if (auth) headers.set('cf-access-jwt-assertion', auth);
+  const session = init.session === undefined ? cookie : init.session;
+  if (session) headers.set('cookie', session);
   const origin = init.origin === undefined ? SITE : init.origin;
   if (origin && (init.method ?? 'GET') !== 'GET') headers.set('origin', origin);
-  return handleRequest(new Request(`${SITE}${path}`, {
+  return send(new Request(`${SITE}${path}`, {
     method: init.method ?? 'GET',
     headers,
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
-  }), env, ctx);
+  }));
 }
 
 const lake = {
@@ -82,69 +95,87 @@ async function createPicture(body: Record<string, unknown> = lake) {
 }
 
 async function publicCatalog() {
-  const response = await handleRequest(new Request(`${SITE}/catalog.json`), env, ctx);
+  installCaches(); // read through to the store, not this location's cache
+  const response = await send(new Request(`${SITE}/catalog.json`));
   return { status: response.status, catalog: parseCatalog(await response.json()), cacheControl: response.headers.get('cache-control') };
 }
 
-describe('admin authentication', () => {
-  it('rejects anonymous reads and writes', async () => {
-    expect((await api('/api/admin/pictures', { auth: null })).status).toBe(401);
-    expect((await api('/api/admin/pictures', { method: 'POST', body: lake, auth: null })).status).toBe(401);
-    expect((await api('/api/admin/publish', { method: 'POST', auth: null })).status).toBe(401);
-    expect((await handleRequest(new Request(`${SITE}/admin/`), env, ctx)).status).toBe(401);
-    expect(env.CATALOG_BUCKET.objects.size).toBe(0);
+describe('admin sign-in', () => {
+  it('signs in with the email (any case) and key from the environment', async () => {
+    const response = await signIn('  admin@EXAMPLE.com ', ADMIN_KEY);
+    expect(response.status).toBe(200);
+    const setCookie = response.headers.get('set-cookie') ?? '';
+    expect(setCookie).toMatch(new RegExp(`^${SESSION_COOKIE}=`));
+    expect(setCookie).toMatch(/HttpOnly/);
+    expect(setCookie).toMatch(/Secure/);
+    expect(setCookie).toMatch(/SameSite=Strict/);
+    expect(await (await api('/api/admin/me', { session: sessionFrom(response) })).json()).toEqual({ email: 'admin@example.com' });
   });
 
-  it('rejects tokens with a bad signature, audience, issuer, expiry or unknown key', async () => {
-    const other = await createSigner('key-1');
-    const cases = [
-      await other.sign(validClaims()),
-      await signer.sign(validClaims({ aud: ['someone-else'] })),
-      await signer.sign(validClaims({ iss: 'https://evil.cloudflareaccess.com' })),
-      await signer.sign(validClaims({ exp: Math.floor(Date.now() / 1000) - 3600 })),
-      await signer.sign(validClaims(), 'unknown-kid'),
-      await signer.sign(validClaims({ email: undefined })),
-      'not.a.jwt',
-    ];
-    for (const bad of cases) {
-      expect((await api('/api/admin/me', { auth: bad })).status).toBe(401);
+  it('rejects a wrong key or email', async () => {
+    expect((await signIn(ADMIN_EMAIL, 'wrong-key-1234')).status).toBe(401);
+    expect((await signIn('someone@example.com', ADMIN_KEY)).status).toBe(401);
+    expect((await signIn(ADMIN_EMAIL, '')).status).toBe(401);
+  });
+
+  it('locks out an address after repeated failures', async () => {
+    for (let i = 0; i < 10; i += 1) await signIn(ADMIN_EMAIL, `wrong-${i}-xxxxxxx`, '198.51.100.20');
+    const blocked = await signIn(ADMIN_EMAIL, ADMIN_KEY, '198.51.100.20');
+    expect(blocked.status).toBe(429);
+    expect((await signIn(ADMIN_EMAIL, ADMIN_KEY, '198.51.100.21')).status).toBe(200);
+  });
+
+  it('refuses cross-site sign-in', async () => {
+    const response = await send(new Request(`${SITE}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+      body: JSON.stringify({ email: ADMIN_EMAIL, key: ADMIN_KEY }),
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it('fails closed when the admin email or key is missing or too short', async () => {
+    for (const overrides of [{ ADMIN_EMAIL: '' }, { ADMIN_KEY: '' }, { ADMIN_KEY: 'short' }]) {
+      env = createEnv(overrides);
+      expect((await signIn(ADMIN_EMAIL, overrides.ADMIN_KEY ?? ADMIN_KEY)).status).toBe(401);
+      expect((await api('/api/admin/me')).status).toBe(401);
     }
   });
 
-  it('accepts a valid Access token, from the header or the cookie', async () => {
-    const response = await api('/api/admin/me');
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ email: 'admin@example.com' });
-    const viaCookie = await handleRequest(new Request(`${SITE}/api/admin/me`, { headers: { cookie: `CF_Authorization=${token}` } }), env, ctx);
-    expect(viaCookie.status).toBe(200);
+  it('rejects missing, forged, tampered or expired sessions', async () => {
+    const [name, value] = cookie.split('=');
+    const [payload, signature] = value.split('.');
+    const forgedPayload = Buffer.from(JSON.stringify({ email: 'admin@example.com', exp: 9_999_999_999 })).toString('base64url');
+    const expiredPayload = Buffer.from(JSON.stringify({ email: 'admin@example.com', exp: 1 })).toString('base64url');
+    for (const session of [null, `${name}=${forgedPayload}.${signature}`, `${name}=${payload}.AAAA`, `${name}=${expiredPayload}.${signature}`, `${name}=garbage`]) {
+      expect((await api('/api/admin/me', { session })).status).toBe(401);
+    }
   });
 
-  it('fails closed when Access is not configured', async () => {
-    env = createEnv({ ACCESS_AUD: '' });
+  it('changing the admin key signs existing sessions out', async () => {
+    env = createEnv({ ADMIN_KEY: 'a-brand-new-admin-key' });
     expect((await api('/api/admin/me')).status).toBe(401);
   });
 
-  it('applies the optional email allowlist', async () => {
-    env = createEnv({ ADMIN_EMAILS: 'someone@example.com' });
-    expect((await api('/api/admin/me')).status).toBe(401);
-    env = createEnv({ ADMIN_EMAILS: 'someone@example.com, admin@example.com' });
-    expect((await api('/api/admin/me')).status).toBe(200);
+  it('sign-out clears the cookie', async () => {
+    const response = await api('/api/admin/logout', { method: 'POST' });
+    expect(response.headers.get('set-cookie')).toMatch(/Max-Age=0/);
   });
 
-  it('only honours the dev admin email on localhost', async () => {
-    env = createEnv({ DEV_ADMIN_EMAIL: 'dev@example.com' });
-    expect((await handleRequest(new Request(`${SITE}/api/admin/me`), env, ctx)).status).toBe(401);
-    const local = await handleRequest(new Request('http://localhost:8787/api/admin/me'), env, ctx);
-    expect(local.status).toBe(200);
+  it('rejects anonymous reads and writes', async () => {
+    expect((await api('/api/admin/pictures', { session: null })).status).toBe(401);
+    expect((await api('/api/admin/pictures', { method: 'POST', body: lake, session: null })).status).toBe(401);
+    expect((await api('/api/admin/publish', { method: 'POST', session: null })).status).toBe(401);
+    expect(store.pictures).toHaveLength(0);
   });
 
-  it('refuses cross-origin writes even with a valid token', async () => {
+  it('refuses cross-origin writes even when signed in', async () => {
     expect((await api('/api/admin/pictures', { method: 'POST', body: lake, origin: 'https://evil.example' })).status).toBe(403);
     expect((await api('/api/admin/pictures', { method: 'POST', body: lake, origin: null })).status).toBe(403);
   });
 
-  it('serves the admin page with no-store and anti-framing headers', async () => {
-    const response = await handleRequest(new Request(`${SITE}/admin/`, { headers: { 'cf-access-jwt-assertion': token } }), env, ctx);
+  it('serves the admin page (with its sign-in form) without caching or framing', async () => {
+    const response = await send(new Request(`${SITE}/admin/`));
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('x-frame-options')).toBe('DENY');
@@ -152,11 +183,11 @@ describe('admin authentication', () => {
 });
 
 describe('catalog publishing', () => {
-  it('drafts stay private; publishing writes the public catalog', async () => {
-    expect((await publicCatalog()).status).toBe(404);
+  it('drafts stay private; publishing makes the picture public', async () => {
+    expect((await publicCatalog()).catalog?.pictures).toEqual([]);
     const picture = await createPicture();
     expect(picture.status).toBe('draft');
-    expect(env.CATALOG_BUCKET.objects.size).toBe(0);
+    expect((await publicCatalog()).catalog?.pictures).toEqual([]);
 
     const published = await api(`/api/admin/pictures/${picture.id}/publish`, { method: 'POST' });
     const body = await published.json() as { catalog: { status: string; version: number } };
@@ -164,19 +195,32 @@ describe('catalog publishing', () => {
 
     const { catalog, cacheControl } = await publicCatalog();
     expect(cacheControl).toMatch(/max-age=60/);
+    expect(catalog?.version).toBe(body.catalog.version);
     expect(catalog?.pictures).toEqual([{
       id: picture.id, title: lake.title, theme: lake.theme, url: lake.url, thumbUrl: lake.thumbUrl,
       alt: lake.alt, attribution: lake.attribution, license: lake.license, minChallenge: 0, maxChallenge: 5,
     }]);
-    expect(env.CATALOG_BUCKET.objects.has(`catalog/v${body.catalog.version}.json`)).toBe(true);
   });
 
-  it('edits to a published picture, reorder and unpublish all refresh the catalog', async () => {
+  it('publishing clears this location\'s cached catalog', async () => {
+    const picture = await createPicture();
+    installCaches();
+    await send(new Request(`${SITE}/catalog.json`)); // cache the empty catalog
+    await api(`/api/admin/pictures/${picture.id}/publish`, { method: 'POST' });
+    const response = await send(new Request(`${SITE}/catalog.json`));
+    expect(parseCatalog(await response.json())?.pictures).toHaveLength(1);
+  });
+
+  it('cached copies expire within a minute, with no stale-while-revalidate', async () => {
+    const response = await send(new Request(`${SITE}/catalog.json`));
+    expect(response.headers.get('cache-control')).toBe('public, max-age=60');
+  });
+
+  it('edits to a published picture, reorder and unpublish all reach the catalog', async () => {
     const a = await createPicture();
     const b = await createPicture({ ...lake, title: 'Forest', url: `https://${IMAGE_HOST}/pics/forest-v1.png`, thumbUrl: undefined });
     await api(`/api/admin/pictures/${a.id}/publish`, { method: 'POST' });
     await api(`/api/admin/pictures/${b.id}/publish`, { method: 'POST' });
-    installCaches(); // each test read below bypasses the edge cache
 
     const edited = await api(`/api/admin/pictures/${a.id}`, { method: 'PUT', body: { ...lake, title: 'Lake at Dawn', url: `https://${IMAGE_HOST}/pics/lake-v2.png` } });
     expect(edited.status).toBe(200);
@@ -184,51 +228,28 @@ describe('catalog publishing', () => {
     expect(catalog?.pictures.map((p) => p.title)).toEqual(['Lake at Dawn', 'Forest']);
     expect(catalog?.pictures[0].url).toBe(`https://${IMAGE_HOST}/pics/lake-v2.png`);
 
-    installCaches();
     expect((await api('/api/admin/reorder', { method: 'POST', body: { ids: [b.id, a.id] } })).status).toBe(200);
     ({ catalog } = await publicCatalog());
     expect(catalog?.pictures.map((p) => p.id)).toEqual([b.id, a.id]);
 
-    installCaches();
     await api(`/api/admin/pictures/${b.id}/unpublish`, { method: 'POST' });
     ({ catalog } = await publicCatalog());
     expect(catalog?.pictures.map((p) => p.id)).toEqual([a.id]);
   });
 
-  it('a failed catalog write is reported, marks the catalog stale, and can be retried', async () => {
-    const picture = await createPicture();
-    env.CATALOG_BUCKET.failPuts = true;
-    const response = await api(`/api/admin/pictures/${picture.id}/publish`, { method: 'POST' });
-    const body = await response.json() as { picture: { status: string }; catalog: { status: string; error: string } };
-    expect(body.picture.status).toBe('published');
-    expect(body.catalog.status).toBe('failed');
-    expect(body.catalog.error).toContain('R2 unavailable');
-
-    let status = await (await api('/api/admin/status')).json() as { stale: boolean; latest: { status: string } };
-    expect(status.stale).toBe(true);
-    expect(status.latest.status).toBe('failed');
-
-    expect((await api('/api/admin/publish', { method: 'POST' })).status).toBe(502);
-    env.CATALOG_BUCKET.failPuts = false;
-    expect((await api('/api/admin/publish', { method: 'POST' })).status).toBe(200);
-    status = await (await api('/api/admin/status')).json() as { stale: boolean; latest: { status: string } };
-    expect(status.stale).toBe(false);
-    expect((await publicCatalog()).catalog?.pictures).toHaveLength(1);
-  });
-
-  it('draft edits do not mark the catalog stale', async () => {
-    const picture = await createPicture();
-    await api('/api/admin/publish', { method: 'POST' });
-    await api(`/api/admin/pictures/${picture.id}`, { method: 'PUT', body: { ...lake, title: 'Renamed draft' } });
-    const status = await (await api('/api/admin/status')).json() as { stale: boolean };
-    expect(status.stale).toBe(false);
+  it('a database outage returns 503 so the game uses its fallback pictures', async () => {
+    store.failNext = true;
+    installCaches();
+    expect((await send(new Request(`${SITE}/catalog.json`))).status).toBe(503);
   });
 
   it('records an audit trail', async () => {
     const picture = await createPicture();
     await api(`/api/admin/pictures/${picture.id}/publish`, { method: 'POST' });
-    const { results } = await env.DB.prepare('SELECT actor, action FROM audit_log ORDER BY id').all<{ actor: string; action: string }>();
-    expect(results).toEqual([{ actor: 'admin@example.com', action: 'create' }, { actor: 'admin@example.com', action: 'publish' }]);
+    expect(store.auditLog.map(({ actor, action }) => ({ actor, action }))).toEqual([
+      { actor: 'admin@example.com', action: 'create' },
+      { actor: 'admin@example.com', action: 'publish' },
+    ]);
   });
 });
 
@@ -246,7 +267,8 @@ describe('picture validation', () => {
 
   it.each([
     ['an unapproved host', 'https://elsewhere.example.com/a.png', {}, /hosted on images.example.com/],
-    ['an r2.dev host', 'https://pub-123.r2.dev/a.png', {}, /hosted on|r2.dev/],
+    ['an IP address', 'https://203.0.113.5/a.png', {}, /public website name/],
+    ['localhost', 'https://localhost/a.png', {}, /public website name/],
     ['plain http', `http://${IMAGE_HOST}/pics/lake-v1.png`, {}, /https/],
     ['a missing file', `https://${IMAGE_HOST}/missing.png`, {}, /HTTP 404/],
   ])('rejects %s', async (_name, url, _img, message) => {
@@ -271,6 +293,23 @@ describe('picture validation', () => {
     expect(result.image.errors.join(' ')).toMatch(message);
   });
 
+  it('allows any https website when no image hosts are configured', async () => {
+    env = createEnv({ IMAGE_HOSTS: '' });
+    const url = 'https://cdn.somewhere.example/photos/lake.png';
+    images.set(url, {});
+    expect((await check(url)).ok).toBe(true);
+    expect((await check('https://192.168.1.10/a.png')).image.errors.join(' ')).toMatch(/public website name/);
+  });
+
+  it('accepts r2.dev links with a warning', async () => {
+    env = createEnv({ IMAGE_HOSTS: '' });
+    const url = 'https://pub-123.r2.dev/a.png';
+    images.set(url, {});
+    const result = await check(url);
+    expect(result.ok).toBe(true);
+    expect(result.image.warnings.join(' ')).toMatch(/r2.dev/);
+  });
+
   it('warns about short cache lifetimes and very large images', async () => {
     const url = `https://${IMAGE_HOST}/pics/big.png`;
     images.set(url, { width: 4000, height: 4000, cacheControl: 'max-age=60' });
@@ -292,11 +331,11 @@ describe('picture validation', () => {
   });
 
   it('requires JSON bodies for writes', async () => {
-    const response = await handleRequest(new Request(`${SITE}/api/admin/pictures`, {
+    const response = await send(new Request(`${SITE}/api/admin/pictures`, {
       method: 'POST',
-      headers: { 'content-type': 'text/plain', origin: SITE, 'cf-access-jwt-assertion': token },
+      headers: { 'content-type': 'text/plain', origin: SITE, cookie },
       body: JSON.stringify(lake),
-    }), env, ctx);
+    }));
     expect(response.status).toBe(400);
   });
 
@@ -305,7 +344,8 @@ describe('picture validation', () => {
     images.set(lake.url, { cors: null });
     const response = await api(`/api/admin/pictures/${picture.id}/publish`, { method: 'POST' });
     expect(response.status).toBe(422);
-    expect(env.CATALOG_BUCKET.objects.size).toBe(0);
+    expect(store.pictures[0].status).toBe('draft');
+    expect(store.publications).toHaveLength(0);
   });
 });
 
@@ -327,12 +367,8 @@ describe('image header parsing', () => {
 
 describe('public routes', () => {
   it('serves the game assets and 404s unknown API paths', async () => {
-    expect(await (await handleRequest(new Request(`${SITE}/`), env, ctx)).text()).toBe('asset:/');
-    expect((await handleRequest(new Request(`${SITE}/api/nope`), env, ctx)).status).toBe(404);
-  });
-
-  it('keeps AUD constant visible to tests', () => {
-    expect(AUD).toBeTruthy();
+    expect(await (await send(new Request(`${SITE}/`))).text()).toBe('asset:/');
+    expect((await send(new Request(`${SITE}/api/nope`))).status).toBe(404);
     expect(ORIGIN).toBe(SITE);
   });
 });

@@ -1,37 +1,25 @@
 // Cloudflare Pages project: the game's static build plus an advanced-mode
-// _worker.js (worker/src) that serves /catalog.json, /api/events and the
-// Access-protected /admin. Replace every REPLACE_ME before deploying; see
-// docs/DEPLOYMENT.md.
+// _worker.js (worker/src) that serves /catalog.json from Supabase,
+// /api/events, and the signed-in /admin. See docs/DEPLOYMENT.md.
+//
+// Secrets (set with `npx wrangler pages secret put NAME`, never in this file):
+//   SUPABASE_SERVICE_ROLE_KEY   Supabase service_role key
+//   ADMIN_EMAIL                 admin sign-in email
+//   ADMIN_KEY                   admin sign-in key, at least 12 characters
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "arsmigames-tetris-picture-puzzle-web-game",
   "pages_build_output_dir": "./dist",
   "compatibility_date": "2025-10-01",
 
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "shape-reveal-catalog",
-      "database_id": "a242f6c7-56b4-48cc-9b41-f0114428b9f6",
-      "migrations_dir": "migrations"
-    }
-  ],
-
-  "r2_buckets": [
-    // Private bucket for the generated catalog JSON. Picture files live in a
-    // separate public bucket behind the image custom domain.
-    { "binding": "CATALOG_BUCKET", "bucket_name": "shape-reveal-catalog" }
-  ],
-
   "analytics_engine_datasets": [
     { "binding": "ANALYTICS", "dataset": "shape_reveal_events" }
   ],
 
   "vars": {
-    "ACCESS_TEAM_DOMAIN": "REPLACE_ME.cloudflareaccess.com",
-    "ACCESS_AUD": "REPLACE_ME_ACCESS_APPLICATION_AUD",
-    "ADMIN_EMAILS": "",
-    "IMAGE_HOSTS": "images.example.com",
+    "SUPABASE_URL": "https://REPLACE_ME.supabase.co",
+    // Empty allows image links from any https website.
+    "IMAGE_HOSTS": "",
     "GAME_ORIGIN": "https://arsmigames-tetris-picture-puzzle-web-game.pages.dev"
   }
 }

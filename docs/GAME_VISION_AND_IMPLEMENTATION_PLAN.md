@@ -1,6 +1,6 @@
 # Shape Reveal: game vision and implementation plan
 
-Status: product plan. Phases 1–4 are implemented and phase 5 is prepared but not deployed; see the README and docs/DEPLOYMENT.md. Updated 2026-10-21.
+Status: product plan. Phases 1–4 are implemented and phase 5 is prepared but not deployed. The catalog moved to Supabase and the admin signs in with an email and key from the environment, replacing D1 and Cloudflare Access; see docs/DEPLOYMENT.md. Updated 2026-10-21.
 
 ## What the project is
 

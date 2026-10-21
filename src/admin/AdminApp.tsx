@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, Eye, Pencil, Plus, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, Eye, LogOut, Pencil, Plus, RefreshCw, Sparkles } from 'lucide-react';
 import { CHALLENGE_LADDER } from '@/challenge';
 import { api, ApiError, type AdminPicture, type CatalogStatus, type ImageReport, type PublishOutcome } from './api';
 import { PictureEditor } from './PictureEditor';
 import { AdminPreview } from './AdminPreview';
+import { SignIn } from './SignIn';
 
-type Load = { kind: 'loading' } | { kind: 'denied'; message: string } | { kind: 'error'; message: string } | { kind: 'ready' };
+type Load = { kind: 'loading' } | { kind: 'signed-out' } | { kind: 'error'; message: string } | { kind: 'ready' };
 
 const STATUS_STYLE: Record<AdminPicture['status'], string> = {
   draft: 'bg-slate-500/20 text-slate-200',
@@ -46,20 +47,22 @@ export function AdminApp() {
       setStatus(list.status);
       setLoad({ kind: 'ready' });
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) setLoad({ kind: 'denied', message: error.message });
+      if (error instanceof ApiError && error.status === 401) setLoad({ kind: 'signed-out' });
       else setLoad({ kind: 'error', message: error instanceof Error ? error.message : 'Could not load the catalog.' });
     }
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  /** Report the outcome of a write, including a failed catalog publish. */
+  /** Report the outcome of a write. */
   const report = useCallback((done: string, catalog?: PublishOutcome) => {
-    if (catalog?.status === 'failed') {
-      setNotice({ tone: 'error', text: `${done}, but the public catalog could not be updated: ${catalog.error ?? 'unknown error'}. Use “Retry publish”.` });
-    } else {
-      setNotice({ tone: 'ok', text: catalog ? `${done}. Players will see it within about a minute.` : `${done}.` });
-    }
+    setNotice({ tone: 'ok', text: catalog ? `${done}. Players will see it within about a minute.` : `${done}.` });
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await api('/api/admin/logout', { method: 'POST' }).catch(() => undefined);
+    setPictures([]);
+    setLoad({ kind: 'signed-out' });
   }, []);
 
   const run = useCallback(async (key: string, task: () => Promise<void>) => {
@@ -90,11 +93,11 @@ export function AdminApp() {
 
   const republish = () => run('publish', async () => {
     const result = await api<{ catalog: PublishOutcome }>('/api/admin/publish', { method: 'POST' });
-    report('Catalog republished', result.catalog);
+    report('Public pictures refreshed', result.catalog);
   });
 
   if (load.kind === 'loading') return <Shell><p className="text-slate-300" role="status">Loading catalog…</p></Shell>;
-  if (load.kind === 'denied') return <Shell><p role="alert" className="text-rose-200">{load.message}</p></Shell>;
+  if (load.kind === 'signed-out') return <Shell><SignIn onSignedIn={() => { setLoad({ kind: 'loading' }); void refresh(); }} /></Shell>;
   if (load.kind === 'error') {
     return <Shell><p role="alert" className="text-rose-200">{load.message}</p><button type="button" onClick={() => void refresh()} className="mt-4 rounded-xl bg-white/10 px-4 py-2 hover:bg-white/20">Try again</button></Shell>;
   }
@@ -103,22 +106,21 @@ export function AdminApp() {
   const themes = [...new Set(pictures.map((p) => p.theme))].sort();
 
   return (
-    <Shell email={email}>
-      <section aria-label="Catalog status" className={`rounded-2xl border p-4 ${status?.stale ? 'border-amber-300/40 bg-amber-300/10' : 'border-white/10 bg-[#151f32]'}`}>
+    <Shell email={email} onSignOut={() => void signOut()}>
+      <section aria-label="What players see" className="rounded-2xl border border-white/10 bg-[#151f32] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-start gap-3">
-            {status?.stale ? <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" /> : <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />}
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
             <div className="text-sm">
-              <p className="font-semibold">{status?.stale ? 'The public catalog is out of date' : 'Public catalog is up to date'}</p>
+              <p className="font-semibold">{published} published · {pictures.length} total</p>
               <p className="text-slate-300">
-                {published} published · {pictures.length} total
-                {status?.lastSuccess && <> · version {status.lastSuccess.version}, {new Date(status.lastSuccess.finished_at ?? status.lastSuccess.started_at).toLocaleString()}</>}
+                Changes reach players within about a minute.
+                {status?.latest && <> Last change: {new Date(status.latest.finished_at ?? status.latest.started_at).toLocaleString()}.</>}
               </p>
-              {status?.latest?.status === 'failed' && <p className="mt-1 text-amber-100">Last attempt failed: {status.latest.error}</p>}
             </div>
           </div>
-          <button type="button" onClick={republish} disabled={busy !== null} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium hover:bg-white/20 disabled:opacity-50">
-            <RefreshCw className={`h-4 w-4 ${busy === 'publish' ? 'animate-spin' : ''}`} /> {status?.stale ? 'Retry publish' : 'Republish'}
+          <button type="button" onClick={republish} disabled={busy !== null} title="Clear the cached picture list now" className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium hover:bg-white/20 disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${busy === 'publish' ? 'animate-spin' : ''}`} /> Refresh now
           </button>
         </div>
       </section>
@@ -175,13 +177,18 @@ export function AdminApp() {
   );
 }
 
-function Shell({ email, children }: { email?: string; children: React.ReactNode }) {
+function Shell({ email, onSignOut, children }: { email?: string; onSignOut?: () => void; children: React.ReactNode }) {
   return (
     <main className="min-h-[100dvh] bg-[#0b1120] px-4 py-6 text-white sm:px-6">
       <div className="mx-auto max-w-4xl">
         <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.22em] text-cyan-300"><Sparkles className="h-5 w-5" /> Shape Reveal admin</div>
-          {email && <span className="text-xs text-slate-400">Signed in as {email}</span>}
+          {email && (
+            <div className="flex items-center gap-3 text-xs text-slate-400">
+              <span>Signed in as {email}</span>
+              {onSignOut && <button type="button" onClick={onSignOut} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-slate-200 hover:bg-white/10"><LogOut className="h-4 w-4" /> Sign out</button>}
+            </div>
+          )}
         </header>
         {children}
       </div>
