@@ -1,6 +1,3 @@
-/** Direction for rotation. */
-export type RotationDirection = 'cw' | 'ccw';
-
 /** Represents a single cell position in a piece's local coordinate system. */
 export interface PieceCell {
   /** X offset within the piece's local grid (left = 0). */
@@ -67,7 +64,7 @@ export interface DifficultyConfig {
 
 export type DifficultyId = 'easy' | 'medium' | 'hard';
 
-/** The seven standard Tetris shape identifiers plus a few extra. */
+/** The seven standard four-cell Tetris shapes. */
 export type TetrisShapeId =
   | 'I'
   | 'O'
@@ -75,10 +72,7 @@ export type TetrisShapeId =
   | 'S'
   | 'Z'
   | 'L'
-  | 'J'
-  | 'P'
-  | 'U'
-  | 'X';
+  | 'J';
 
 /** Image option for the puzzle. */
 export interface ImageOption {

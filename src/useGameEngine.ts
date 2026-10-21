@@ -5,7 +5,6 @@ import type {
   GameConfig,
   GridTile,
   PieceTarget,
-  RotationDirection,
 } from './types';
 import {
   partitionGrid,
@@ -25,14 +24,26 @@ import {
 function initGame(config: GameConfig): GameState {
   const { cols, rows } = config.difficulty;
 
-  let partitions = partitionGrid(cols, rows);
+  let partitions = createFallSafePartitionGrid(cols, rows);
   let pieces = createPiecesFromPartitions(partitions);
   let sorted = orderPiecesForSupportedPlacement(pieces, partitions, rows);
+  let variety = 0;
 
-  if (sorted.length !== pieces.length) {
-    partitions = createFallSafePartitionGrid(cols, rows);
-    pieces = createPiecesFromPartitions(partitions);
-    sorted = orderPiecesForSupportedPlacement(pieces, partitions, rows);
+  // Prefer varied boards, but only accept a complete queue that the falling
+  // mechanic can assemble. The fallback above is always a valid tetromino grid.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const candidate = partitionGrid(cols, rows);
+    if (candidate.some((part) => part.cells.length !== 4)) continue;
+    const candidatePieces = createPiecesFromPartitions(candidate);
+    const candidateOrder = orderPiecesForSupportedPlacement(candidatePieces, candidate, rows);
+    const candidateVariety = new Set(candidate.map((part) => part.shape)).size;
+    if (candidateOrder.length === candidatePieces.length && candidateVariety > variety) {
+      partitions = candidate;
+      pieces = candidatePieces;
+      sorted = candidateOrder;
+      variety = candidateVariety;
+    }
+    if (variety >= 4) break;
   }
 
   // Create tiles (image slice data) for each partition
@@ -177,7 +188,6 @@ export interface GameEngine {
   moveLeft: () => void;
   moveRight: () => void;
   moveDown: () => void;
-  rotate: (dir?: RotationDirection) => void;
   hardDrop: () => void;
   pause: () => void;
   resume: () => void;
@@ -245,7 +255,7 @@ export function useGameEngine(config: GameConfig | null): GameEngine {
         placeOnBoard(piece, newState.board);
         newState.placedPieceIds.add(piece.id);
         newState.placedCount += 1;
-        // newState.score += 100;
+        newState.score += 100;
         newState.wrongFlash = false;
         newState.rejectedPiece = null;
 
@@ -265,7 +275,7 @@ export function useGameEngine(config: GameConfig | null): GameEngine {
       newState.wrongFlash = true;
       newState.rejectedPiece = clonePiece(piece);
       newState.currentPiece = null;
-      // newState.score = Math.max(0, newState.score - 10);
+      newState.score = Math.max(0, newState.score - 25);
 
       const retryPiece: Piece = {
         ...piece,
@@ -332,49 +342,6 @@ export function useGameEngine(config: GameConfig | null): GameEngine {
       return tryLockPiece(prev);
     });
   }, [tryLockPiece]);
-
-  // Rotate
-  const rotate = useCallback((dir: RotationDirection = 'cw') => {
-    setState((prev) => {
-      if (!prev || prev.paused || prev.won || !prev.currentPiece) return prev;
-      const { cols, rows } = configRef.current!.difficulty;
-      const piece = clonePiece(prev.currentPiece);
-      const newRotation =
-        dir === 'cw' ? (piece.rotation + 1) % 4 : (piece.rotation + 3) % 4;
-
-      // Get the rotated cells
-      const baseCells = piece.cells;
-      // We need the original shape cells, but we stored current rotation.
-      // Instead, rotate the current cells.
-      const rotated =
-        dir === 'cw'
-          ? baseCells.map((c) => ({ x: -c.y, y: c.x }))
-          : baseCells.map((c) => ({ x: c.y, y: -c.x }));
-
-      // Normalize
-      const minX = Math.min(...rotated.map((c) => c.x));
-      const minY = Math.min(...rotated.map((c) => c.y));
-      const normalized = rotated.map((c) => ({
-        x: c.x - minX,
-        y: c.y - minY,
-      }));
-
-      // Try placement with wall kicks
-      const kicks = [0, -1, 1, -2, 2];
-      for (const kick of kicks) {
-        const testPiece: Piece = {
-          ...piece,
-          cells: normalized,
-          rotation: newRotation,
-          col: piece.col + kick,
-        };
-        if (canPlaceOnBoard(testPiece, prev.board, cols, rows)) {
-          return { ...prev, currentPiece: testPiece };
-        }
-      }
-      return prev;
-    });
-  }, []);
 
   // Hard drop — instantly move piece to bottom or target
   const hardDrop = useCallback(() => {
@@ -505,7 +472,7 @@ export function useGameEngine(config: GameConfig | null): GameEngine {
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [moveLeft, moveRight, moveDown, rotate, hardDrop, pause, resume]);
+  }, [moveLeft, moveRight, moveDown, hardDrop, pause, resume]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -536,7 +503,6 @@ export function useGameEngine(config: GameConfig | null): GameEngine {
     moveLeft,
     moveRight,
     moveDown,
-    rotate,
     hardDrop,
     pause,
     resume,

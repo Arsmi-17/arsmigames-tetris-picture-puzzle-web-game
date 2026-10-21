@@ -10,6 +10,7 @@ interface GameBoardProps {
   cellSize: number;
   /** Plays the completion sequence: seams dissolve, then the board lifts. */
   celebrating?: boolean;
+  showHint?: boolean;
 }
 
 /** Width of the white seams between tiles, matching the reference UI. */
@@ -21,7 +22,7 @@ const SEAM = 2;
  */
 export const BOARD_IMAGE_OPACITY = 0.25;
 
-export function GameBoard({ state, config, cellSize, celebrating = false }: GameBoardProps) {
+export function GameBoard({ state, config, cellSize, celebrating = false, showHint = false }: GameBoardProps) {
   const { cols, rows } = config.difficulty;
   const imageUrl = config.image.url;
   const boardWidth = cols * cellSize;
@@ -137,6 +138,15 @@ export function GameBoard({ state, config, cellSize, celebrating = false }: Game
         </div>
       </div>
 
+      {showHint && state.currentPiece && (() => {
+        const target = state.targets.get(state.currentPiece.id);
+        if (!target) return null;
+        return target.cells.map((cell, index) => (
+          <div key={`hint-${index}`} className="pointer-events-none absolute z-10 bg-cyan-300/25 ring-2 ring-inset ring-cyan-300"
+            style={{ left: (target.col + cell.x) * cellSize, top: (target.row + cell.y + SPAWN_ROWS) * cellSize, width: cellSize, height: cellSize }} />
+        ));
+      })()}
+
       {/* ---- Rejected piece: blinks in place before vanishing ---- */}
       {state.rejectedPiece && (() => {
         const rejected = state.rejectedPiece;
@@ -149,7 +159,7 @@ export function GameBoard({ state, config, cellSize, celebrating = false }: Game
               return (
                 <div
                   key={`rejected-${rejected.id}-${tileIdx}`}
-                  className="absolute overflow-hidden ring-2 ring-inset ring-brand-coral"
+                  className="absolute overflow-hidden ring-2 ring-inset ring-rose-400"
                   style={{
                     left: (rejected.col + cell.x) * cellSize,
                     top: (rejected.row + cell.y + SPAWN_ROWS) * cellSize,
@@ -160,7 +170,7 @@ export function GameBoard({ state, config, cellSize, celebrating = false }: Game
                     backgroundPosition: `${tile.bgPosX}% ${tile.bgPosY}%`,
                   }}
                 >
-                  <div className="absolute inset-0 bg-brand-coral/35" />
+                  <div className="absolute inset-0 bg-rose-400/35" />
                 </div>
               );
             })}

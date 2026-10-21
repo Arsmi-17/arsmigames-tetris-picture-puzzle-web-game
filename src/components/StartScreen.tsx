@@ -1,151 +1,110 @@
-import { useCallback, useState } from 'react';
-import { ArrowRight, ChevronsDown, Clock, MoveHorizontal, ArrowDown } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { PUZZLE_IMAGES, DIFFICULTIES } from '@/gameLogic';
-import type { GameConfig } from '@/types';
-import { prefersReducedMotion } from '@/celebration';
+import { useState } from 'react';
+import { ArrowRight, ImagePlus, Sparkles } from 'lucide-react';
+import { DIFFICULTIES, PUZZLE_IMAGES } from '@/gameLogic';
+import type { DifficultyId, GameConfig, ImageOption } from '@/types';
 
-interface StartScreenProps {
-  onStart: (config: GameConfig) => void;
+interface StartScreenProps { onStart: (config: GameConfig) => void }
+
+async function squareImage(file: File): Promise<string> {
+  const source = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('This image could not be opened.'));
+      image.src = source;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Image processing is unavailable.');
+    const side = Math.min(image.naturalWidth, image.naturalHeight);
+    context.drawImage(image, (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2, side, side, 0, 0, 1024, 1024);
+    return canvas.toDataURL('image/jpeg', 0.9);
+  } finally {
+    URL.revokeObjectURL(source);
+  }
 }
-
-interface Instruction {
-  icon: LucideIcon;
-  title: string;
-  detail: string;
-}
-
-const INSTRUCTIONS: Instruction[] = [
-  {
-    icon: MoveHorizontal,
-    title: 'Move',
-    detail: 'Use ← → to position blocks',
-  },
-  {
-    icon: ArrowDown,
-    title: 'Drop',
-    detail: 'Move the block down',
-  },
-  {
-    icon: ChevronsDown,
-    title: 'Drop at Once',
-    detail: 'Send the block straight down',
-  },
-  {
-    icon: Clock,
-    title: 'Watch the Timer',
-    detail: 'Keep an eye on the countdown',
-  },
-];
-
-/** Must match the screen-exit animation in index.css. */
-const EXIT_MS = 300;
 
 export function StartScreen({ onStart }: StartScreenProps) {
-  const [leaving, setLeaving] = useState(false);
+  const [image, setImage] = useState<ImageOption>(PUZZLE_IMAGES[0]);
+  const [difficulty, setDifficulty] = useState<DifficultyId>('medium');
+  const [imageError, setImageError] = useState('');
+  const [loadingImage, setLoadingImage] = useState(false);
 
-  const handlePlay = useCallback(() => {
-    if (leaving) return;
-    setLeaving(true);
-    // Let the screen clear before the board replaces it.
-    window.setTimeout(
-      () => onStart({ image: PUZZLE_IMAGES[0], difficulty: DIFFICULTIES.hard }),
-      prefersReducedMotion() ? 0 : EXIT_MS,
-    );
-  }, [leaving, onStart]);
+  const handleImage = async (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setImageError('Choose an image file.'); return; }
+    if (file.size > 8 * 1024 * 1024) { setImageError('Choose an image smaller than 8 MB.'); return; }
+    setImageError('');
+    setLoadingImage(true);
+    try {
+      setImage({ id: 'custom', label: file.name, url: await squareImage(file) });
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : 'Could not open image.');
+    } finally {
+      setLoadingImage(false);
+    }
+  };
 
   return (
-    <div className={`relative min-h-[100dvh] w-full ${leaving ? 'animate-screen-exit' : ''}`}>
-      <div className="brand-backdrop" aria-hidden="true" />
-
-      {/*
-        Mobile is a fixed-height, non-scrolling screen: every size below is a
-        clamp against viewport height so the whole thing fits a short phone as
-        well as a tall one. The lg: layout reverts to normal document flow.
-      */}
-      <div className="relative z-10 mx-auto flex h-[100dvh] w-full max-w-md flex-col overflow-hidden px-5 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-[clamp(0.75rem,2vh,1.5rem)] lg:h-auto lg:min-h-[100dvh] lg:max-w-6xl lg:grid lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-16 lg:overflow-visible lg:px-12 lg:py-12">
-        {/* ---- Hero ---- */}
-        <header className="shrink-0 lg:self-center">
-          <div className="flex justify-end lg:justify-start">
-            <img
-              src="/assets/intuit-logo.png"
-              alt="Intuit"
-              className="h-[clamp(1.75rem,4vh,2.5rem)] w-auto lg:h-12"
-            />
-          </div>
-
-          <div className="mt-[clamp(0.5rem,1.5vh,1.5rem)] flex items-start gap-3 lg:mt-10 lg:block">
-            <div className="min-w-0 flex-1">
-              <h1 className="font-display text-[clamp(1.9rem,6.2vh,3rem)] font-bold leading-[0.92] tracking-tight text-brand-ink lg:text-7xl">
-                HOW TO
-                <br />
-                <span className="text-brand-blue">PLAY</span>
-              </h1>
-
-              <p className="mt-[clamp(0.4rem,1.4vh,1rem)] text-[clamp(0.95rem,2.2vh,1.25rem)] leading-snug text-brand-body lg:mt-6 lg:text-2xl">
-                Beat the clock.
-                <br />
-                Reveal the big picture.
-              </p>
-            </div>
-
-            <img
-              src="/assets/vector-art.png"
-              alt=""
-              aria-hidden="true"
-              className="w-[40%] max-w-[clamp(7rem,22vh,11.5rem)] shrink-0 self-start lg:mt-10 lg:w-[72%] lg:max-w-sm"
-            />
-          </div>
-
-          {/* Desktop CTA sits with the hero; mobile CTA is pinned below the list. */}
-          <button
-            onClick={handlePlay}
-            className="mt-10 hidden w-full max-w-sm items-center justify-center gap-3 rounded-full bg-brand-blue px-8 py-5 text-xl font-medium text-white shadow-cta transition hover:bg-brand-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue active:scale-[0.98] lg:inline-flex"
-          >
-            Let&rsquo;s Play
-            <ArrowRight className="h-6 w-6" strokeWidth={2.5} />
-          </button>
+    <main className="min-h-[100dvh] bg-[#0b1120] px-4 py-6 text-white sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-8 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.22em] text-cyan-300"><Sparkles className="h-5 w-5" /> Shape Reveal</div>
+          <span className="text-xs text-slate-400">Picture puzzle + falling blocks</span>
         </header>
 
-        {/* ---- Instruction cards ---- */}
-        <div className="mt-[clamp(0.6rem,2vh,2rem)] flex min-h-0 flex-1 flex-col lg:mt-0 lg:block lg:flex-none">
-          <ul className="flex min-h-0 flex-1 flex-col justify-center gap-[clamp(0.45rem,1.5vh,1.25rem)] lg:block lg:space-y-5">
-            {INSTRUCTIONS.map(({ icon: Icon, title, detail }, index) => (
-              <li
-                key={title}
-                className="animate-fade-in-up flex items-center gap-[clamp(0.6rem,3vw,1.25rem)] rounded-2xl bg-white p-[clamp(0.55rem,1.6vh,1.25rem)] shadow-card lg:gap-5 lg:p-5"
-                style={{ animationDelay: `${index * 70}ms` }}
-              >
-                <div className="flex h-[clamp(2.4rem,6vh,4rem)] w-[clamp(3.1rem,9vw,6rem)] shrink-0 items-center justify-center rounded-xl bg-brand-coral text-white lg:h-16 lg:w-24">
-                  <Icon
-                    className="h-[clamp(1.15rem,3vh,2rem)] w-[clamp(1.15rem,3vh,2rem)] lg:h-8 lg:w-8"
-                    strokeWidth={2.25}
-                  />
-                </div>
+        <div className="grid gap-10 lg:grid-cols-[1fr_1.08fr] lg:items-center">
+          <section>
+            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">Make the picture whole</p>
+            <h1 className="max-w-xl text-4xl font-black leading-tight tracking-tight sm:text-6xl">Every block holds <span className="text-cyan-300">a piece of the picture.</span></h1>
+            <p className="mt-5 max-w-lg text-base leading-relaxed text-slate-300 sm:text-lg">Guide falling Tetris shapes into their matching spaces. Each correct drop reveals more of the image.</p>
+            <div className="mt-7 grid max-w-lg grid-cols-3 gap-2 text-center text-xs text-slate-300 sm:text-sm">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3">Move<br /><strong className="text-white">← →</strong></div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3">Soft drop<br /><strong className="text-white">↓</strong></div>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3">Instant drop<br /><strong className="text-white">Space</strong></div>
+            </div>
+          </section>
 
-                <div className="h-[clamp(2rem,5vh,3.5rem)] w-px shrink-0 bg-brand-body/25" />
+          <section className="rounded-3xl border border-white/10 bg-[#151f32] p-5 shadow-2xl sm:p-7" aria-label="Game setup">
+            <h2 className="text-xl font-bold">Choose a picture</h2>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              {PUZZLE_IMAGES.map((option) => (
+                <button key={option.id} type="button" onClick={() => setImage(option)} aria-pressed={image.id === option.id}
+                  className={`overflow-hidden rounded-xl border-2 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 ${image.id === option.id ? 'border-cyan-300' : 'border-transparent hover:border-white/40'}`}>
+                  <img src={option.url} alt="" className="aspect-square w-full object-cover" />
+                  <span className="block truncate bg-[#25334a] px-2 py-2 text-xs font-medium">{option.label}</span>
+                </button>
+              ))}
+              <label className={`cursor-pointer overflow-hidden rounded-xl border-2 transition focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-cyan-300 ${image.id === 'custom' ? 'border-cyan-300' : 'border-dashed border-white/30 hover:border-white/60'}`}>
+                <span className="flex aspect-square items-center justify-center bg-[#25334a]">{image.id === 'custom' ? <img src={image.url} alt="Your picture" className="h-full w-full object-cover" /> : <ImagePlus className="h-7 w-7 text-cyan-300" />}</span>
+                <span className="block truncate bg-[#25334a] px-2 py-2 text-xs font-medium">{loadingImage ? 'Loading…' : image.id === 'custom' ? image.label : 'Your image'}</span>
+                <input className="sr-only" type="file" accept="image/*" onChange={(event) => void handleImage(event.target.files?.[0])} />
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">Your image stays in this browser session.</p>
+            {imageError && <p role="alert" className="mt-2 text-sm text-rose-300">{imageError}</p>}
 
-                <div className="min-w-0">
-                  <h2 className="font-display text-[clamp(1rem,2.6vh,1.5rem)] font-bold leading-tight text-brand-ink lg:text-2xl">
-                    {title}
-                  </h2>
-                  <p className="mt-0.5 text-[clamp(0.72rem,1.7vh,1rem)] leading-tight text-brand-muted lg:text-base">
-                    {detail}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
+            <h2 className="mt-7 text-xl font-bold">Choose a challenge</h2>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {(Object.keys(DIFFICULTIES) as DifficultyId[]).map((id) => (
+                <button key={id} type="button" onClick={() => setDifficulty(id)} aria-pressed={difficulty === id}
+                  className={`rounded-xl border px-3 py-3 text-left transition ${difficulty === id ? 'border-cyan-300 bg-cyan-300/10' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
+                  <strong className="block text-sm">{DIFFICULTIES[id].label}</strong>
+                  <span className="mt-1 block text-xs leading-snug text-slate-300">{DIFFICULTIES[id].description}</span>
+                </button>
+              ))}
+            </div>
 
-          <button
-            onClick={handlePlay}
-            className="mt-[clamp(0.6rem,2vh,2rem)] inline-flex w-full shrink-0 items-center justify-center gap-3 rounded-full bg-brand-blue px-8 py-[clamp(0.7rem,2vh,1.25rem)] text-[clamp(1rem,2.4vh,1.25rem)] font-medium text-white shadow-cta transition hover:bg-brand-blue-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue active:scale-[0.98] lg:hidden"
-          >
-            Let&rsquo;s Play
-            <ArrowRight className="h-[clamp(1.1rem,2.6vh,1.5rem)] w-[clamp(1.1rem,2.6vh,1.5rem)]" strokeWidth={2.5} />
-          </button>
+            <button type="button" onClick={() => onStart({ image, difficulty: DIFFICULTIES[difficulty] })} disabled={loadingImage}
+              className="mt-7 inline-flex w-full items-center justify-center gap-3 rounded-xl bg-cyan-300 px-6 py-4 font-bold text-[#0b1120] transition hover:bg-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:opacity-50">
+              Start puzzle <ArrowRight className="h-5 w-5" />
+            </button>
+          </section>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

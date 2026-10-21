@@ -16,40 +16,40 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
   easy: {
     id: 'easy',
     label: 'Easy',
-    cols: 6,
-    rows: 6,
-    fallSpeed: 2500,
-    description: '6×6 board — 36 tiles, relaxed pace',
+    cols: 4,
+    rows: 4,
+    fallSpeed: 3000,
+    description: '4×4 picture · 4 shapes, relaxed pace',
   },
   medium: {
     id: 'medium',
     label: 'Medium',
     cols: 8,
     rows: 8,
-    fallSpeed: 1800,
-    description: '8×8 board — 64 tiles, steady challenge',
+    fallSpeed: 2200,
+    description: '8×8 picture · 16 shapes, steady pace',
   },
   hard: {
     id: 'hard',
     label: 'Hard',
-    cols: 7,
-    rows: 7,
-    fallSpeed: 730,
-    description: '7x7 board - 49 tiles, fast paced',
+    cols: 10,
+    rows: 10,
+    fallSpeed: 1250,
+    description: '10×10 picture · 25 shapes, fast pace',
   },
 };
 
-/** Puzzle images — brand photography shipped in /public/assets. */
+/** Original sample artwork shipped in /public/assets. */
 export const PUZZLE_IMAGES: ImageOption[] = [
   {
-    id: 'hq-tower',
-    label: 'Intuit HQ',
-    url: '/assets/puzzle-picture.png',
+    id: 'aurora',
+    label: 'Aurora Lake',
+    url: '/assets/aurora.svg',
   },
   {
-    id: 'hq-facade',
-    label: 'Intuit Facade',
-    url: '/assets/puzzle-picture-1.png',
+    id: 'sunset',
+    label: 'Sunset Cove',
+    url: '/assets/sunset.svg',
   },
 ];
 
@@ -97,23 +97,10 @@ const SHAPES: Record<TetrisShapeId, PieceCell[]> = {
     { x: 0, y: 2 },
     { x: 1, y: 2 },
   ],
-  P: [
-    { x: 0, y: 0 },
-    { x: 1, y: 0 },
-    { x: 0, y: 1 },
-  ],
-  U: [
-    { x: 0, y: 0 },
-    { x: 0, y: 1 },
-    { x: 1, y: 1 },
-  ],
-  X: [
-    { x: 0, y: 0 },
-  ],
 };
 
 /** All shape ids we can use for partitioning. */
-const SHAPE_IDS: TetrisShapeId[] = ['I', 'O', 'T', 'S', 'Z', 'L', 'J', 'P', 'U'];
+const SHAPE_IDS: TetrisShapeId[] = ['I', 'O', 'T', 'S', 'Z', 'L', 'J'];
 
 /**
  * Rotate a set of cells 90° clockwise around the origin (0,0).
@@ -205,6 +192,35 @@ export interface PartitionResult {
  * using backtracking to ensure complete coverage.
  */
 export function partitionGrid(cols: number, rows: number): PartitionResult[] {
+  if (cols < 4 || rows < 4 || cols % 2 !== 0 || rows % 2 !== 0) {
+    throw new Error('Picture dimensions must be even and at least 4x4.');
+  }
+  // Large exact-cover searches can have very long random tails. Build larger
+  // pictures from quick 4x4 tetromino tilings, plus O pieces for a 2-cell rim.
+  if (cols > 4 || rows > 4) {
+    const results: PartitionResult[] = [];
+    const tiledCols = Math.floor(cols / 4) * 4;
+    const tiledRows = Math.floor(rows / 4) * 4;
+    for (let row = 0; row < tiledRows; row += 4) {
+      for (let col = 0; col < tiledCols; col += 4) {
+        for (const part of partitionGrid(4, 4)) {
+          results.push({ ...part, originCol: part.originCol + col, originRow: part.originRow + row });
+        }
+      }
+    }
+    for (let col = tiledCols; col < cols; col += 2) {
+      for (let row = 0; row < rows; row += 2) {
+        results.push({ shape: 'O', rotation: 0, cells: SHAPES.O.map((cell) => ({ ...cell })), originCol: col, originRow: row });
+      }
+    }
+    for (let row = tiledRows; row < rows; row += 2) {
+      for (let col = 0; col < tiledCols; col += 2) {
+        results.push({ shape: 'O', rotation: 0, cells: SHAPES.O.map((cell) => ({ ...cell })), originCol: col, originRow: row });
+      }
+    }
+    return results;
+  }
+
   const grid: boolean[] = new Array(cols * rows).fill(false); // true = occupied
   const results: PartitionResult[] = [];
 
@@ -281,25 +297,7 @@ export function partitionGrid(cols: number, rows: number): PartitionResult[] {
   }
 
   if (backtrack()) return results;
-  return createEvenGridFallback(cols, rows);
-}
-
-function createEvenGridFallback(cols: number, rows: number): PartitionResult[] {
-  const results: PartitionResult[] = [];
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      results.push({
-        shape: 'X',
-        rotation: 0,
-        cells: SHAPES.X.map((cell) => ({ ...cell })),
-        originCol: col,
-        originRow: row,
-      });
-    }
-  }
-
-  return results;
+  return createFallSafePartitionGrid(cols, rows);
 }
 
 /**
@@ -431,9 +429,25 @@ export function orderPiecesForSupportedPlacement(
 
 /** Deterministic tiling that can always be completed by falling pieces. */
 export function createFallSafePartitionGrid(cols: number, rows: number): PartitionResult[] {
-  if (cols !== 10 || rows !== 10) return createEvenGridFallback(cols, rows);
-
   const results: PartitionResult[] = [];
+
+  if (cols !== 10 || rows !== 10) {
+    if (cols % 2 !== 0 || rows % 2 !== 0) {
+      throw new Error('Puzzle dimensions must be even for tetromino tiling.');
+    }
+    for (let row = 0; row < rows; row += 2) {
+      for (let col = 0; col < cols; col += 2) {
+        results.push({
+          shape: 'O',
+          rotation: 0,
+          cells: SHAPES.O.map((cell) => ({ ...cell })),
+          originCol: col,
+          originRow: row,
+        });
+      }
+    }
+    return results;
+  }
 
   for (let row = 0; row < rows; row += 1) {
     results.push({

@@ -39,7 +39,7 @@ export function PieceTile({
 
   let stateClasses = '';
   if (isWrong) {
-    stateClasses = 'z-20 animate-shake ring-2 ring-inset ring-brand-coral';
+    stateClasses = 'z-20 animate-shake ring-2 ring-inset ring-rose-400';
   } else if (isPlaced) {
     stateClasses = seamless ? 'ring-0' : 'ring-1 ring-inset ring-white';
   } else if (isFalling) {
