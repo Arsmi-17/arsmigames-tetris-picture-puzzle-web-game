@@ -134,12 +134,22 @@ describe('admin sign-in', () => {
     expect(response.status).toBe(403);
   });
 
-  it('fails closed when the admin email or key is missing or too short', async () => {
-    for (const overrides of [{ ADMIN_EMAIL: '' }, { ADMIN_KEY: '' }, { ADMIN_KEY: 'short' }]) {
+  it('fails closed, and says so, when the admin email or key is missing or too short', async () => {
+    for (const overrides of [{ ADMIN_EMAIL: '' }, { ADMIN_KEY: '' }, { ADMIN_KEY: 'short' }, { ADMIN_KEY: undefined as unknown as string }]) {
       env = createEnv(overrides);
-      expect((await signIn(ADMIN_EMAIL, overrides.ADMIN_KEY ?? ADMIN_KEY)).status).toBe(401);
+      const response = await signIn(ADMIN_EMAIL, overrides.ADMIN_KEY ?? ADMIN_KEY);
+      expect(response.status).toBe(503);
+      expect((await response.json() as { error: string }).error).toMatch(/not set up on this deployment/);
+      expect(await (await send(new Request(`${SITE}/api/admin/login`))).json()).toEqual({ configured: false });
       expect((await api('/api/admin/me')).status).toBe(401);
     }
+    env = createEnv();
+    expect(await (await send(new Request(`${SITE}/api/admin/login`))).json()).toEqual({ configured: true });
+  });
+
+  it('accepts the values from the screenshot, with stray spaces around them', async () => {
+    env = createEnv({ ADMIN_EMAIL: 'admin.arsmi@gmail.com', ADMIN_KEY: 'admin@arsmi17 ' });
+    expect((await signIn('Admin.Arsmi@gmail.com ', ' admin@arsmi17')).status).toBe(200);
   });
 
   it('rejects missing, forged, tampered or expired sessions', async () => {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LogIn } from 'lucide-react';
 import { api, ApiError } from './api';
 
@@ -8,6 +8,11 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [configured, setConfigured] = useState(true);
+
+  useEffect(() => {
+    api<{ configured: boolean }>('/api/admin/login').then((r) => setConfigured(r.configured), () => undefined);
+  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -28,6 +33,11 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   return (
     <form onSubmit={(event) => void submit(event)} className="mx-auto mt-10 grid max-w-sm gap-4 rounded-3xl border border-white/10 bg-[#151f32] p-6" aria-labelledby="sign-in-title">
       <h1 id="sign-in-title" className="text-xl font-bold">Sign in to manage pictures</h1>
+      {!configured && (
+        <p role="alert" className="rounded-xl bg-amber-300/10 p-3 text-sm text-amber-100">
+          Sign-in is not set up on this deployment yet. Add <code>ADMIN_EMAIL</code> and <code>ADMIN_KEY</code> (12+ characters) to the Pages project&apos;s Production variables, then redeploy.
+        </p>
+      )}
       <label className="block text-sm font-medium" htmlFor="admin-email">Email
         <input id="admin-email" className={input} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
       </label>

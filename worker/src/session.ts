@@ -34,12 +34,19 @@ function fromBase64Url(input: string): string {
   return atob(base64);
 }
 
-function configured(env: Env): boolean {
-  return Boolean(env.ADMIN_EMAIL && env.ADMIN_KEY && env.ADMIN_KEY.length >= MIN_KEY_LENGTH);
+function adminKey(env: Env): string {
+  return (env.ADMIN_KEY ?? '').trim();
 }
 
+/** Whether ADMIN_EMAIL and a long enough ADMIN_KEY reached this deployment. */
+export function signInConfigured(env: Env): boolean {
+  return Boolean(env.ADMIN_EMAIL?.trim() && adminKey(env).length >= MIN_KEY_LENGTH);
+}
+
+const configured = signInConfigured;
+
 async function hmacKey(env: Env): Promise<CryptoKey> {
-  const material = await crypto.subtle.digest('SHA-256', encoder.encode(`shape-reveal-session:${env.ADMIN_KEY}`));
+  const material = await crypto.subtle.digest('SHA-256', encoder.encode(`shape-reveal-session:${adminKey(env)}`));
   return crypto.subtle.importKey('raw', material, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
@@ -83,7 +90,8 @@ export async function checkCredentials(request: Request, env: Env, email: unknow
     return null;
   }
   const emailOk = await sameSecret(email.trim().toLowerCase(), env.ADMIN_EMAIL.trim().toLowerCase());
-  const keyOk = await sameSecret(key, env.ADMIN_KEY);
+  // Spaces pasted around either value are ignored.
+  const keyOk = await sameSecret(key.trim(), adminKey(env));
   if (emailOk && keyOk) {
     attempts.delete(clientKey(request));
     return { email: env.ADMIN_EMAIL.trim().toLowerCase() };

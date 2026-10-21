@@ -3,7 +3,7 @@ import { handleAdminApi } from './admin';
 import { CATALOG_PATH, serveCatalog } from './catalog';
 import { handleEvents } from './events';
 import { error, json, readJson, withHeaders } from './http';
-import { checkCredentials, clearSessionCookie, createSessionCookie, loginBlocked, verifySession } from './session';
+import { checkCredentials, clearSessionCookie, createSessionCookie, loginBlocked, signInConfigured, verifySession } from './session';
 import type { CatalogStore } from './store';
 import { createSupabaseStore } from './supabase';
 
@@ -16,6 +16,9 @@ import { createSupabaseStore } from './supabase';
  *   /admin/              admin page (shows a sign-in form until signed in)
  *   everything else      the game's static files
  */
+
+const NOT_CONFIGURED =
+  'Admin sign-in is not set up on this deployment. Add ADMIN_EMAIL and ADMIN_KEY (12+ characters) to the Pages project for Production, then redeploy.';
 
 const ADMIN_PAGE_HEADERS = {
   'cache-control': 'no-store',
@@ -46,7 +49,10 @@ export async function handleRequest(request: Request, env: Env, ctx: ExecutionCo
   if (path === '/api/events') return handleEvents(request, env);
 
   if (path === '/api/admin/login') {
+    // Lets the sign-in page explain a missing setup instead of "do not match".
+    if (request.method === 'GET') return json({ configured: signInConfigured(env) });
     if (request.method !== 'POST') return error(405, 'Method not allowed.');
+    if (!signInConfigured(env)) return error(503, NOT_CONFIGURED);
     const origin = request.headers.get('origin');
     if (!origin || origin !== url.origin) return error(403, 'Cross-origin sign-in is not allowed.');
     if (loginBlocked(request)) return error(429, 'Too many sign-in attempts. Wait 15 minutes and try again.');
